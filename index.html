@@ -18,7 +18,8 @@
     <!-- 3D Map Labels Layer -->
     <div id="labels-container"></div>
 
-    <!-- Header Overlay -->
+    <!-- Left column: header + controls stacked, so they never overlap -->
+    <div class="left-column">
     <header class="app-header glass-panel">
       <div class="brand-icon">🌊</div>
       <div class="title-group">
@@ -28,39 +29,6 @@
       <button id="btn-lang" class="lang-btn">English</button>
     </header>
 
-    <!-- Top-Right Impact Meters HUD -->
-    <aside class="hud-panel glass-panel">
-      <div class="meter-card">
-        <span class="meter-val" id="hud-sim-time">00:00</span>
-        <span class="meter-unit" id="txt-unit-min">分:秒</span>
-        <span class="meter-label" id="txt-label-time">経過時間</span>
-      </div>
-      <div class="meter-card">
-        <span class="meter-val" id="hud-offshore-wave">0.0</span>
-        <span class="meter-unit">m</span>
-        <span class="meter-label" id="txt-label-wave">沖合津波高</span>
-      </div>
-      <div class="meter-card">
-        <span class="meter-val" id="hud-runup">0.0</span>
-        <span class="meter-unit">m</span>
-        <span class="meter-label" id="txt-label-runup">最大遡上高</span>
-      </div>
-      <div class="meter-card">
-        <span class="meter-val" id="hud-area">0.0</span>
-        <span class="meter-unit">ha</span>
-        <span class="meter-label" id="txt-label-area">浸水面積</span>
-      </div>
-      <div class="meter-card">
-        <span class="meter-val" id="hud-bldgs">0</span>
-        <span class="meter-unit">棟</span>
-        <span class="meter-label" id="txt-label-bldgs">浸水建物</span>
-      </div>
-      <div class="meter-card">
-        <span class="meter-val" id="hud-overtop" style="color: #10b981;">SAFE</span>
-        <span class="meter-unit" id="hud-overtop-tag">防護中</span>
-        <span class="meter-label" id="txt-label-overtop">水門・堤防</span>
-      </div>
-    </aside>
 
     <!-- Left Control Sidebar -->
     <nav class="control-sidebar glass-panel">
@@ -70,10 +38,10 @@
           <span>🎯</span> <span id="txt-sec-scenario">津波シナリオ</span>
         </div>
         <select id="select-scenario">
-          <option value="nankai_osaka_trimmed">南海トラフ巨大地震 (大阪港想定 5.4m)</option>
-          <option value="nankai_osaka_full">南海トラフ巨大地震 (2.5時間フルタイムライン)</option>
-          <option value="extreme_megathrust">想定超過巨大津波 (波高 7.5m・越流検証)</option>
-          <option value="ansei_nankai_1854">歴史津波 安政南海地震 (1854年再現 3.5m)</option>
+          <option value="nankai_osaka_trimmed">南海トラフ 内閣府ケース③ (nankai_trough計算 2.0m)</option>
+          <option value="nankai_osaka_full">南海トラフ 内閣府ケース③ (地震発生から3時間)</option>
+          <option value="extreme_megathrust">仮想 想定超過津波 (沖合4.5m・越流検証)</option>
+          <option value="ansei_nankai_1854">安政南海地震型 (1854年・概略 2.5m)</option>
           <option value="custom">カスタム津波パラメータ</option>
         </select>
         <p id="scenario-desc" style="font-size: 11px; color: var(--text-dim); line-height: 1.4;"></p>
@@ -170,6 +138,26 @@
           <input type="checkbox" id="chk-labels" checked>
           <span id="txt-chk-labels">ランドマーク名称ラベル表示</span>
         </label>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; cursor: pointer;">
+          <input type="checkbox" id="chk-backdrop" checked>
+          <span id="txt-chk-backdrop">周辺地形（大阪平野・六甲・生駒）表示</span>
+        </label>
+      </section>
+
+      <!-- Camera -->
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>🎥</span> <span id="txt-sec-camera">視点</span>
+        </div>
+        <div class="view-grid">
+          <button data-view="overview" id="btn-view-overview">全景</button>
+          <button data-view="port" id="btn-view-port">大阪港</button>
+          <button data-view="gates" id="btn-view-gates">三大水門</button>
+          <button data-view="city" id="btn-view-city">市街地</button>
+          <button data-view="region" id="btn-view-region">広域</button>
+          <button data-view="top" id="btn-view-top">真上</button>
+        </div>
+        <p id="txt-controls-hint" class="hint">左ドラッグ: 回転 / 右ドラッグ: 移動 / ホイール: ズーム / ダブルクリック: 注視点 / WASD・矢印: 前後左右 / Q・E: 上下 (Shiftで高速) / クリック: 地点観察ピン</p>
       </section>
 
       <!-- Export Buttons -->
@@ -183,6 +171,41 @@
         </div>
       </section>
     </nav>
+    </div>
+
+    <!-- Top-Right Impact Meters HUD -->
+    <aside class="hud-panel glass-panel">
+      <div class="meter-card">
+        <span class="meter-val" id="hud-sim-time">00:00</span>
+        <span class="meter-unit" id="txt-unit-min">分:秒</span>
+        <span class="meter-label" id="txt-label-time">経過時間</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-offshore-wave">0.0</span>
+        <span class="meter-unit">m</span>
+        <span class="meter-label" id="txt-label-wave">沖合津波高</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-runup">0.0</span>
+        <span class="meter-unit">m</span>
+        <span class="meter-label" id="txt-label-runup">最大遡上高</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-area">0.0</span>
+        <span class="meter-unit">ha</span>
+        <span class="meter-label" id="txt-label-area">浸水面積</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-bldgs">0</span>
+        <span class="meter-unit">棟</span>
+        <span class="meter-label" id="txt-label-bldgs">浸水建物</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-overtop" style="color: #10b981;">SAFE</span>
+        <span class="meter-unit" id="hud-overtop-tag">防護中</span>
+        <span class="meter-label" id="txt-label-overtop">水門・堤防</span>
+      </div>
+    </aside>
 
     <!-- Bottom-Right Hydrograph Chart -->
     <aside class="chart-panel glass-panel">

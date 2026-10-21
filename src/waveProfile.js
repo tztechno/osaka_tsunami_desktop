@@ -282,7 +282,9 @@ export class WaveProfile {
         }
       }
       const peakDir = directions[maxIdx];
-      if (!Number.isNaN(peakDir) && peakDir > 0) {
+      // Direction_deg is the flow direction (nankai_trough); it means nothing while the current is zero
+      const peakSpeed = speeds ? speeds[maxIdx] : 1;
+      if (!Number.isNaN(peakDir) && peakDir > 0 && peakSpeed > 0.01) {
         dominantDir = Math.round((peakDir + 180) % 360);
       }
     }

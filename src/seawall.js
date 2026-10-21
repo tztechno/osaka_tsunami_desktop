@@ -1,5 +1,11 @@
 import * as THREE from 'three';
 
+// Osaka port coastal seawall crest (seaward of the three gates) and the river parapets behind them
+const COASTAL_WALL_H = 6.8;
+const RIVER_WALL_H = 3.5;
+const SHORE_COAST = 1;
+const SHORE_RIVER = 2;
+
 export class SeawallManager {
   constructor(regionMeta) {
     this.meta = regionMeta;
@@ -16,6 +22,7 @@ export class SeawallManager {
     this.ground = null;
     this.waterMask = null;
     this.perimeterMesh = null;
+    this.shore = null; // per land cell: 0, SHORE_COAST or SHORE_RIVER
   }
 
   async loadSeawalls(regionName, ground = null, waterMask = null) {
@@ -28,6 +35,7 @@ export class SeawallManager {
         return;
       }
       this.seawallData = await res.json();
+      this.classifyShore();
       this.rebuildMeshes();
       this.updateBarrierGrid();
     } catch (e) {
@@ -74,11 +82,10 @@ export class SeawallManager {
       this.meshGroup.remove(child);
     }
     this.seawallMeshes.clear();
+    this.perimeterMesh = null;
+    if (this.activePreset === 'no_seawall') return;
 
-    const activeList = this.getActiveSeawallList();
-    if (activeList.length === 0) return;
-
-    for (const sw of activeList) {
+    for (const sw of this.getActiveSeawallList()) {
       const targetH = this.activePreset === 'custom' ? this.customHeight : sw.designHeight;
       const mesh = this.createSeawallMesh(sw, targetH);
       if (mesh) {
@@ -87,85 +94,116 @@ export class SeawallManager {
       }
     }
 
-    // Add perimeter seawall mesh encircling zero-meter zones
-    if (this.activePreset !== 'no_seawall' && this.waterMask && this.ground) {
-      const targetH = this.activePreset === 'custom' ? this.customHeight : 6.8;
-      const periMesh = this.createPerimeterMesh(targetH);
-      if (periMesh) {
-        this.meshGroup.add(periMesh);
-        this.perimeterMesh = periMesh;
+    const periMesh = this.createPerimeterMesh();
+    if (periMesh) {
+      this.meshGroup.add(periMesh);
+      this.perimeterMesh = periMesh;
+    }
+  }
+
+  /** Crest height of the shore wall on a coast (1) or inner-river (2) cell for the active preset. */
+  shoreWallHeight(kind) {
+    if (this.activePreset === 'no_seawall') return -999;
+    if (this.activePreset === 'custom') return this.customHeight;
+    return kind === SHORE_COAST ? COASTAL_WALL_H : RIVER_WALL_H;
+  }
+
+  /** Cells within halfW of every sluice-gate line (independent of the preset). */
+  gateFootprint() {
+    const { nx, ny } = this.meta;
+    const mask = new Uint8Array(nx * ny);
+    const list = Array.isArray(this.seawallData) ? this.seawallData : (this.seawallData?.seawalls || []);
+    for (const sw of list) {
+      if (sw.type !== 'sluice_gate') continue;
+      this.rasterise(sw, (idx) => { mask[idx] = 1; });
+    }
+    return mask;
+  }
+
+  /**
+   * Classify land cells along open water: SHORE_COAST borders water connected to the bay with all
+   * gates closed (seaward of the gates), SHORE_RIVER borders the rivers behind the gates.
+   */
+  classifyShore() {
+    const { nx, ny } = this.meta;
+    const wm = this.waterMask;
+    this.shore = new Uint8Array(nx * ny);
+    if (!wm) return;
+    const gate = this.gateFootprint();
+    const outer = new Uint8Array(nx * ny);
+    const stack = [];
+    const seed = (k) => {
+      if (wm[k] && !gate[k] && !outer[k]) { outer[k] = 1; stack.push(k); }
+    };
+    for (let j = 0; j < ny; j++) seed(j * nx);
+    for (let i = 0; i < nx; i++) seed((ny - 1) * nx + i);
+    while (stack.length) {
+      const k = stack.pop();
+      const i = k % nx;
+      if (i > 0) seed(k - 1);
+      if (i < nx - 1) seed(k + 1);
+      if (k >= nx) seed(k - nx);
+      if (k < (ny - 1) * nx) seed(k + nx);
+    }
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const k = y * nx + x;
+        if (wm[k]) continue;
+        const nb = [x > 0 ? k - 1 : -1, x < nx - 1 ? k + 1 : -1, y > 0 ? k - nx : -1, y < ny - 1 ? k + nx : -1];
+        let kind = 0;
+        for (const n of nb) {
+          if (n < 0 || !wm[n] || gate[n]) continue;
+          kind = outer[n] ? SHORE_COAST : Math.max(kind, SHORE_RIVER);
+          if (kind === SHORE_COAST) break;
+        }
+        this.shore[k] = kind;
       }
     }
   }
 
-  createPerimeterMesh(targetH) {
-    if (!this.waterMask || !this.ground) return null;
-    const { res, nx, ny } = this.meta;
-    const wm = this.waterMask;
-    const gd = this.ground;
-
-    const positions = [];
-    const normals = [];
-    const colors = [];
-
-    const colTop = new THREE.Color('#38bdf8');
-    const colSide = new THREE.Color('#0284c7');
-
-    const addBox = (cx, cz, topY, botY, halfW) => {
-      const x0 = cx - halfW, x1 = cx + halfW;
-      const z0 = cz - halfW, z1 = cz + halfW;
-      // Top face
-      positions.push(x0, topY, z0,  x1, topY, z0,  x1, topY, z1,  x0, topY, z0,  x1, topY, z1,  x0, topY, z1);
-      for (let k = 0; k < 6; k++) { normals.push(0, 1, 0); colors.push(colTop.r, colTop.g, colTop.b); }
-      // Front
-      positions.push(x0, botY, z1,  x1, botY, z1,  x1, topY, z1,  x0, botY, z1,  x1, topY, z1,  x0, topY, z1);
-      for (let k = 0; k < 6; k++) { normals.push(0, 0, 1); colors.push(colSide.r, colSide.g, colSide.b); }
-      // Back
-      positions.push(x1, botY, z0,  x0, botY, z0,  x0, topY, z0,  x1, botY, z0,  x0, topY, z0,  x1, topY, z0);
-      for (let k = 0; k < 6; k++) { normals.push(0, 0, -1); colors.push(colSide.r, colSide.g, colSide.b); }
-    };
-
-    const halfW = res * 0.45;
-    for (let y = 1; y < ny - 1; y += 2) {
-      for (let x = 1; x < nx - 1; x += 2) {
-        const idx = y * nx + x;
-        if (wm[idx] === 0 && gd[idx] < 1.0) {
-          const isCoast = (wm[idx - 1] === 1 || wm[idx + 1] === 1 || wm[idx - nx] === 1 || wm[idx + nx] === 1);
-          if (isCoast) {
-            const cx = (x + 0.5) * res;
-            const cz = (y + 0.5) * res;
-            const botY = Math.max(-0.5, gd[idx]);
-            addBox(cx, cz, targetH, botY, halfW);
-          }
-        }
-      }
+  /** Shore walls as one instanced box per wall cell (top at the crest, bottom on the ground). */
+  createPerimeterMesh() {
+    if (!this.shore || !this.ground) return null;
+    const { res, nx, ny, widthM, heightM } = this.meta;
+    const cells = [];
+    for (let k = 0; k < this.shore.length; k++) {
+      const kind = this.shore[k];
+      if (!kind) continue;
+      const top = this.shoreWallHeight(kind);
+      if (top > this.ground[k] + 0.2) cells.push(k, top);
     }
+    const count = cells.length / 2;
+    if (count === 0) return null;
 
-    if (positions.length === 0) return null;
-
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-
-    const mat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.6,
-      metalness: 0.2,
-      side: THREE.DoubleSide,
-    });
-
-    const mesh = new THREE.Mesh(geom, mat);
+    const geom = new THREE.BoxGeometry(1, 1, 1);
+    geom.translate(0, 0.5, 0);
+    const mat = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.1 });
+    const mesh = new THREE.InstancedMesh(geom, mat, count);
+    const dummy = new THREE.Object3D();
+    const colCoast = new THREE.Color('#7dd3fc');
+    const colRiver = new THREE.Color('#c4b5fd');
+    for (let n = 0; n < count; n++) {
+      const k = cells[n * 2];
+      const top = cells[n * 2 + 1];
+      const bottom = Math.min(this.ground[k], top - 0.2);
+      dummy.position.set(((k % nx) + 0.5) * res - widthM / 2, bottom, (Math.floor(k / nx) + 0.5) * res - heightM / 2);
+      dummy.scale.set(res, top - bottom, res);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(n, dummy.matrix);
+      mesh.setColorAt(n, this.shore[k] === SHORE_COAST ? colCoast : colRiver);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     return mesh;
   }
 
   createSeawallMesh(sw, targetHeight) {
-    const pts = sw.points;
-    if (!pts || pts.length < 2) return null;
+    if (!sw.points || sw.points.length < 2) return null;
+    // region-local metres -> scene coordinates (region centred on the origin)
+    const pts = sw.points.map(([x, z]) => [x - this.meta.widthM / 2, z - this.meta.heightM / 2]);
 
-    const { res, nx, ny } = this.meta;
     const geom = new THREE.BufferGeometry();
     const positions = [];
     const normals = [];
@@ -188,7 +226,7 @@ export class SeawallManager {
       colors.push(col.r, col.g, col.b, col.r, col.g, col.b, col.r, col.g, col.b);
     };
 
-    const yBottom = 0.5;
+    const yBottom = -4.0; // down to the river bed
     const yTop = Math.max(1.5, targetHeight);
 
     for (let i = 0; i < pts.length - 1; i++) {
@@ -250,87 +288,52 @@ export class SeawallManager {
     return mesh;
   }
 
-  updateBarrierGrid() {
-    this.barrierGrid.fill(-999);
-    this.barrierActive.fill(0);
-
-    const activeList = this.getActiveSeawallList();
-    if (activeList.length === 0) return;
-
+  /** Call `fn(idx)` for every grid cell within the gate / wall footprint of `sw`. */
+  rasterise(sw, fn) {
     const { res, nx, ny } = this.meta;
-
-    for (const sw of activeList) {
-      const targetH = this.activePreset === 'custom' ? this.customHeight : sw.designHeight;
-      const pts = sw.points;
-      const halfW = (sw.widthM || 15.0) / 2 + res * 0.7;
-
-      for (let s = 0; s < pts.length - 1; s++) {
-        const p0 = pts[s];
-        const p1 = pts[s + 1];
-
-        const x0 = p0[0] / res;
-        const y0 = p0[1] / res;
-        const x1 = p1[0] / res;
-        const y1 = p1[1] / res;
-
-        const minGx = Math.max(0, Math.floor(Math.min(x0, x1) - halfW / res));
-        const maxGx = Math.min(nx - 1, Math.ceil(Math.max(x0, x1) + halfW / res));
-        const minGy = Math.max(0, Math.floor(Math.min(y0, y1) - halfW / res));
-        const maxGy = Math.min(ny - 1, Math.ceil(Math.max(y0, y1) + halfW / res));
-
-        const segDx = x1 - x0;
-        const segDy = y1 - y0;
-        const segLenSq = segDx * segDx + segDy * segDy;
-
-        for (let gy = minGy; gy <= maxGy; gy++) {
-          for (let gx = minGx; gx <= maxGx; gx++) {
-            const cx = gx + 0.5;
-            const cy = gy + 0.5;
-
-            let t = ((cx - x0) * segDx + (cy - y0) * segDy) / (segLenSq || 1);
-            t = Math.max(0, Math.min(1, t));
-            const projX = x0 + t * segDx;
-            const projY = y0 + t * segDy;
-            const dist = Math.hypot(cx - projX, cy - projY) * res;
-
-            if (dist <= halfW) {
-              const idx = gy * nx + gx;
-              if (targetH > this.barrierGrid[idx]) {
-                this.barrierGrid[idx] = targetH;
-                this.barrierActive[idx] = 1;
-              }
-            }
-          }
+    const pts = sw.points;
+    const halfW = (sw.widthM || 15.0) / 2 + res * 0.7;
+    for (let s = 0; s < pts.length - 1; s++) {
+      const x0 = pts[s][0] / res, y0 = pts[s][1] / res;
+      const x1 = pts[s + 1][0] / res, y1 = pts[s + 1][1] / res;
+      const minGx = Math.max(0, Math.floor(Math.min(x0, x1) - halfW / res));
+      const maxGx = Math.min(nx - 1, Math.ceil(Math.max(x0, x1) + halfW / res));
+      const minGy = Math.max(0, Math.floor(Math.min(y0, y1) - halfW / res));
+      const maxGy = Math.min(ny - 1, Math.ceil(Math.max(y0, y1) + halfW / res));
+      const segDx = x1 - x0, segDy = y1 - y0;
+      const segLenSq = segDx * segDx + segDy * segDy || 1;
+      for (let gy = minGy; gy <= maxGy; gy++) {
+        for (let gx = minGx; gx <= maxGx; gx++) {
+          const cx = gx + 0.5, cy = gy + 0.5;
+          const t = Math.max(0, Math.min(1, ((cx - x0) * segDx + (cy - y0) * segDy) / segLenSq));
+          if (Math.hypot(cx - (x0 + t * segDx), cy - (y0 + t * segDy)) * res <= halfW) fn(gy * nx + gx);
         }
       }
     }
+  }
 
-    // Auto-encircle low-lying and below-sea-level land bordering open water
-    // Ensures complete perimeter artificial levee at realistic crest height (T.P. +6.8m)
-    if (this.waterMask && this.ground && this.activePreset !== 'no_seawall') {
-      const defaultLeveeH = this.activePreset === 'custom' ? this.customHeight : 6.8;
-      const wm = this.waterMask;
-      const gd = this.ground;
+  updateBarrierGrid() {
+    this.barrierGrid.fill(-999);
+    this.barrierActive.fill(0);
+    if (this.activePreset === 'no_seawall') return;
 
-      for (let y = 1; y < ny - 1; y++) {
-        for (let x = 1; x < nx - 1; x++) {
-          const idx = y * nx + x;
-          // Dry land cell bordering water
-          if (wm[idx] === 0) {
-            const zb = gd[idx];
-            // If land is below sea level (< 0m) or low-lying coastal (< 1.5m)
-            if (zb < 1.5) {
-              const isCoast = (wm[idx - 1] === 1 || wm[idx + 1] === 1 ||
-                               wm[idx - nx] === 1 || wm[idx + nx] === 1);
-              if (isCoast) {
-                if (defaultLeveeH > this.barrierGrid[idx]) {
-                  this.barrierGrid[idx] = defaultLeveeH;
-                  this.barrierActive[idx] = 1;
-                }
-              }
-            }
-          }
-        }
+    const raise = (idx, h) => {
+      if (h > this.barrierGrid[idx]) {
+        this.barrierGrid[idx] = h;
+        this.barrierActive[idx] = 1;
+      }
+    };
+    for (const sw of this.getActiveSeawallList()) {
+      const targetH = this.activePreset === 'custom' ? this.customHeight : sw.designHeight;
+      this.rasterise(sw, (idx) => raise(idx, targetH));
+    }
+
+    // Coastal seawalls / river parapets on every land cell along open water
+    if (this.shore && this.ground) {
+      for (let k = 0; k < this.shore.length; k++) {
+        if (!this.shore[k]) continue;
+        const h = this.shoreWallHeight(this.shore[k]);
+        if (h > this.ground[k]) raise(k, h);
       }
     }
   }

@@ -6,8 +6,13 @@ export class DepthChart {
     this.pointInfo = null;
   }
 
+  /** Latest point info; the history restarts only when a different grid cell is observed. */
   setPoint(info) {
+    if (!info || !this.pointInfo || info.gx !== this.pointInfo.gx || info.gz !== this.pointInfo.gz) this.history = [];
     this.pointInfo = info;
+  }
+
+  reset() {
     this.history = [];
   }
 

@@ -1,17 +1,30 @@
+/**
+ * Builds the simulation region (ground.f32 / water.u8 / aerial.jpg / meta.json).
+ *
+ * Land / water classification comes from GSI DEM5A / DEM10B tiles: the sea AND the river channels
+ * (Yodo, Aji, Kizu, Shirinashi, Dotonbori ...) are NoData there, so the 10 m grid gets an exact
+ * coastline and river network. Land keeps its true elevation, including the zero-metre districts
+ * (Nishiyodogawa, Konohana, Minato, Taisho ...) that lie below T.P. 0 m.
+ * The seabed comes from japan.tif (15 arc-second bathymetry), tapered to `coastDepth` at the quay.
+ *
+ *   node tools/build-regions.mjs            # DEM + aerial (aerial tiles are cached)
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fromFile } from 'geotiff';
-import { toPlane, toLonLat } from './lib/proj.mjs';
+import jpeg from 'jpeg-js';
+import { toLonLat } from './lib/proj.mjs';
+import { buildDem } from './lib/dem.mjs';
+import { loadBathymetry } from './lib/bathy.mjs';
 import { buildAerial } from './lib/aerial.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, '..');
 const workspaceRoot = path.resolve(appRoot, '..');
 
-const japanTifPath = path.join(workspaceRoot, 'japan.tif');
-const osakaTifPath = path.resolve(workspaceRoot, '..', 'N60_osaka_viewer', 'docs', 'osaka.tif');
-const cacheDir = path.join(appRoot, '.cache', 'gsi');
+const japanTifPath = path.join(workspaceRoot, 'DOCS', 'japan.tif');
+const photoCacheDir = path.join(appRoot, '.cache', 'gsi');
+const demCacheDir = path.join(appRoot, '.cache', 'gsi-dem');
 
 const REGIONS = [
   {
@@ -27,133 +40,120 @@ const REGIONS = [
     originN: -143000,
     center: { lat: 34.656, lon: 135.432 },
     aerialZoom: 15,
+    coastDepth: -3, // quay walls / dredged river channels
   },
 ];
 
-async function createSampler(tifPath) {
-  const tiff = await fromFile(tifPath);
-  const image = await tiff.getImage();
-  const [ox, oy] = image.getOrigin();
-  const [rx, ry] = image.getResolution();
-  const tw = image.getWidth();
-  const th = image.getHeight();
-  const rasters = await image.readRasters({ interleave: true });
-  const data = rasters;
-
-  return (lon, lat) => {
-    const fx = (lon - ox) / rx;
-    const fy = (lat - oy) / ry;
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    if (x0 < 0 || y0 < 0 || x0 >= tw - 1 || y0 >= th - 1) return null;
-    const wx = fx - x0;
-    const wy = fy - y0;
-    const v00 = data[y0 * tw + x0];
-    const v10 = data[y0 * tw + (x0 + 1)];
-    const v01 = data[(y0 + 1) * tw + x0];
-    const v11 = data[(y0 + 1) * tw + (x0 + 1)];
-    return (v00 * (1 - wx) + v10 * wx) * (1 - wy) + (v01 * (1 - wx) + v11 * wx) * wy;
+/** Water cells 4-connected to the open bay (west / south edges). Unconnected NoData pools are ponds. */
+function oceanConnected(isSea, nx, ny) {
+  const conn = new Uint8Array(nx * ny);
+  const stack = [];
+  const seed = (k) => {
+    if (isSea[k] && !conn[k]) {
+      conn[k] = 1;
+      stack.push(k);
+    }
   };
+  for (let j = 0; j < ny; j++) seed(j * nx);
+  for (let i = 0; i < nx; i++) seed((ny - 1) * nx + i);
+  while (stack.length) {
+    const k = stack.pop();
+    const i = k % nx;
+    if (i > 0) seed(k - 1);
+    if (i < nx - 1) seed(k + 1);
+    if (k >= nx) seed(k - nx);
+    if (k < (ny - 1) * nx) seed(k + nx);
+  }
+  return conn;
 }
 
-async function buildRegion(reg, sampleJapan, sampleOsaka) {
+/** Ponds (isolated NoData) become land at the mean height of the surrounding land. */
+function fillPonds(dem, isKnown, nx, ny) {
+  let todo = 0;
+  for (let k = 0; k < isKnown.length; k++) if (!isKnown[k]) todo++;
+  const known = isKnown.slice();
+  while (todo > 0) {
+    const next = known.slice();
+    let changed = 0;
+    for (let k = 0; k < known.length; k++) {
+      if (known[k]) continue;
+      const i = k % nx;
+      let s = 0, n = 0;
+      if (i > 0 && known[k - 1]) { s += dem[k - 1]; n++; }
+      if (i < nx - 1 && known[k + 1]) { s += dem[k + 1]; n++; }
+      if (k >= nx && known[k - nx]) { s += dem[k - nx]; n++; }
+      if (k < (ny - 1) * nx && known[k + nx]) { s += dem[k + nx]; n++; }
+      if (n) { dem[k] = s / n; next[k] = 1; changed++; }
+    }
+    known.set(next);
+    todo -= changed;
+    if (!changed) break;
+  }
+}
+
+/** Paint water cells of the aerial a uniform dark sea tone (GSI sea tiles mix sources and dates). */
+function paintWater(aerialFile, aerialInfo, water, nx, ny) {
+  const img = jpeg.decode(fs.readFileSync(aerialFile), { useTArray: true, formatAsRGBA: true });
+  const { width: W, height: H } = aerialInfo;
+  for (let y = 0; y < H; y++) {
+    const j = Math.min(ny - 1, Math.floor((y / H) * ny));
+    for (let x = 0; x < W; x++) {
+      const i = Math.min(nx - 1, Math.floor((x / W) * nx));
+      if (!water[j * nx + i]) continue;
+      const o = (y * W + x) * 4;
+      img.data[o] = 18; img.data[o + 1] = 44; img.data[o + 2] = 62;
+    }
+  }
+  fs.writeFileSync(aerialFile, jpeg.encode({ data: img.data, width: W, height: H }, 85).data);
+}
+
+async function buildRegion(reg) {
   console.log(`\n=== Building Region: ${reg.name} (${reg.label}) ===`);
   const outDir = path.join(appRoot, 'public', 'data', 'regions', reg.name);
   fs.mkdirSync(outDir, { recursive: true });
 
   const { nx, ny, res, originE, originN, widthM, heightM } = reg;
-  const ground = new Float32Array(nx * ny);
-  const waterMask = new Uint8Array(nx * ny);
-  let minH = Infinity;
-  let maxH = -Infinity;
-  let seaCount = 0;
-  let landCount = 0;
+  const corners = [
+    toLonLat(originE, originN),
+    toLonLat(originE + widthM, originN),
+    toLonLat(originE, originN - heightM),
+    toLonLat(originE + widthM, originN - heightM),
+  ];
+  const bathy = await loadBathymetry(japanTifPath, {
+    lonMin: Math.min(...corners.map((c) => c[0])),
+    lonMax: Math.max(...corners.map((c) => c[0])),
+    latMin: Math.min(...corners.map((c) => c[1])),
+    latMax: Math.max(...corners.map((c) => c[1])),
+  });
+  console.log(`  Bathymetry: japan.tif window ${bathy.window.join(',')} (${bathy.seaPixels} sea pixels)`);
 
-  for (let j = 0; j < ny; j++) {
-    const n = originN - (j + 0.5) * res;
-    for (let i = 0; i < nx; i++) {
-      const e = originE + (i + 0.5) * res;
-      const [lon, lat] = toLonLat(e, n);
+  const { dem, isSea } = await buildDem({
+    cacheDir: demCacheDir, originE, originN, nx, ny, res, zoom: 15, bathy, coastDepth: reg.coastDepth,
+  });
 
-      const hOsaka = sampleOsaka(lon, lat);
-      const hJapan = sampleJapan(lon, lat);
+  const water = oceanConnected(isSea, nx, ny);
+  // pond cells still hold bathymetry; rebuild them from the land around
+  const known = isSea.map((s, k) => (s && !water[k] ? 0 : 1));
+  const ponds = known.length - known.reduce((n, v) => n + v, 0);
+  fillPonds(dem, known, nx, ny);
 
-      // Determine true elevation and land/water classification
-      // Note: Osaka zero-meter zones (Konohana, Minato, Taisho, Nishiyodogawa) have true elevations of -1m to -4m
-      let isWater = false;
-      let h = 0.5;
-
-      const isOuterSea = (lon < 135.435 && hJapan !== null && hJapan < -1.0) ||
-                          (lon < 135.39 && hJapan !== null && hJapan < -0.1) ||
-                          (hJapan !== null && hJapan < -3.5);
-
-      if (isOuterSea) {
-        // True sea in Osaka Bay or deep port navigation channel
-        h = Math.min(-1.5, hJapan || -5.0);
-        isWater = true;
-        seaCount++;
-      } else if (hOsaka !== null) {
-        // We have local high-resolution DEM data
-        if (hOsaka > 0.05) {
-          // Positive dry land
-          h = hOsaka;
-          isWater = false;
-          landCount++;
-        } else {
-          // hOsaka is <= 0: Could be river waterway or zero-meter urban land!
-          // If japan.tif shows deep water (< -2.0) or estuary (< -1.5) without nearby land, it's river water
-          const isRiverWater = (hJapan !== null && hJapan < -2.0) && (lon < 135.47);
-          if (isRiverWater) {
-            h = Math.min(-1.5, hJapan);
-            isWater = true;
-            seaCount++;
-          } else {
-            // True zero-meter urban zone protected by levees!
-            // Preserve actual ground elevation from osaka.tif (e.g. -0.5m to -4.0m)
-            h = Math.min(0.5, Math.max(-5.0, hOsaka));
-            isWater = false;
-            landCount++;
-          }
-        }
-      } else {
-        // Fallback
-        if (hJapan !== null && hJapan < -0.5) {
-          h = hJapan;
-          isWater = true;
-          seaCount++;
-        } else {
-          h = 0.5;
-          isWater = false;
-          landCount++;
-        }
-      }
-
-      if (h < minH) minH = h;
-      if (h > maxH) maxH = h;
-      ground[j * nx + i] = h;
-      waterMask[j * nx + i] = isWater ? 1 : 0;
-    }
+  let minH = Infinity, maxH = -Infinity, nWater = 0, nBelow = 0;
+  for (let k = 0; k < dem.length; k++) {
+    if (dem[k] < minH) minH = dem[k];
+    if (dem[k] > maxH) maxH = dem[k];
+    if (water[k]) nWater++;
+    else if (dem[k] < 0) nBelow++;
   }
+  console.log(`  Grid: ${nx} x ${ny} @ ${res}m, elevation ${minH.toFixed(2)}m .. ${maxH.toFixed(2)}m`);
+  console.log(`  water ${nWater} cells, land below T.P.0 ${nBelow} cells, ponds filled ${ponds} cells`);
 
-  console.log(`  Grid: ${nx} x ${ny} @ ${res}m (${(widthM/1000).toFixed(1)}km x ${(heightM/1000).toFixed(1)}km)`);
-  console.log(`  Elevation Range: ${minH.toFixed(2)}m to ${maxH.toFixed(2)}m (Land cells: ${landCount}, Sea cells: ${seaCount})`);
+  fs.writeFileSync(path.join(outDir, 'ground.f32'), Buffer.from(dem.buffer));
+  fs.writeFileSync(path.join(outDir, 'water.u8'), Buffer.from(water.buffer));
 
-  // Save ground.f32
-  const groundFile = path.join(outDir, 'ground.f32');
-  fs.writeFileSync(groundFile, Buffer.from(ground.buffer));
-  console.log(`  Saved ${groundFile} (${(ground.byteLength / 1024 / 1024).toFixed(2)} MB)`);
-
-  // Save water.u8 mask
-  const waterFile = path.join(outDir, 'water.u8');
-  fs.writeFileSync(waterFile, Buffer.from(waterMask.buffer));
-  console.log(`  Saved ${waterFile} (${(waterMask.byteLength / 1024 / 1024).toFixed(2)} MB)`);
-
-  // Build aerial photo
   const aerialFile = path.join(outDir, 'aerial.jpg');
-  console.log(`  Downloading and building aerial photo: ${aerialFile}...`);
   const aerialInfo = await buildAerial({
     outFile: aerialFile,
-    cacheDir,
+    cacheDir: photoCacheDir,
     originE,
     originN,
     widthM,
@@ -162,8 +162,8 @@ async function buildRegion(reg, sampleJapan, sampleOsaka) {
     maxPx: 2048,
     metersPerPx: 10,
   });
+  paintWater(aerialFile, aerialInfo, water, nx, ny);
 
-  // Save meta.json
   const meta = {
     name: reg.name,
     label: reg.label,
@@ -180,34 +180,22 @@ async function buildRegion(reg, sampleJapan, sampleOsaka) {
     groundMin: minH,
     groundMax: maxH,
     aerial: aerialInfo,
+    demSource: 'GSI DEM5A/DEM10B (land, NoData = sea & rivers) + japan.tif 15 arc-second bathymetry',
     built: new Date().toISOString(),
   };
-
-  const metaFile = path.join(outDir, 'meta.json');
-  fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2));
-  console.log(`  Saved ${metaFile}`);
-
+  fs.writeFileSync(path.join(outDir, 'meta.json'), JSON.stringify(meta, null, 2));
   return meta;
 }
 
 async function main() {
-  console.log('Loading TIFF samplers...');
-  const sampleJapan = await createSampler(japanTifPath);
-  const sampleOsaka = await createSampler(osakaTifPath);
-
-  const regionMetas = [];
-  for (const reg of REGIONS) {
-    const meta = await buildRegion(reg, sampleJapan, sampleOsaka);
-    regionMetas.push(meta);
-  }
-
+  const metas = [];
+  for (const reg of REGIONS) metas.push(await buildRegion(reg));
   const indexFile = path.join(appRoot, 'public', 'data', 'regions', 'index.json');
-  fs.mkdirSync(path.dirname(indexFile), { recursive: true });
-  fs.writeFileSync(indexFile, JSON.stringify(regionMetas, null, 2));
+  fs.writeFileSync(indexFile, JSON.stringify(metas, null, 2));
   console.log(`Saved ${indexFile}`);
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Build error:', err);
   process.exit(1);
 });

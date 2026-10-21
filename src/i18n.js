@@ -1,6 +1,6 @@
 export const I18N = {
   ja: {
-    appTitle: 'Osaka Tsunami 3D Simulator — 大阪市津波 3Dシミュレーター',
+    appTitle: '大阪市津波 3Dシミュレーター',
     appSubtitle: 'PLATEAU 3D都市モデル × 南海トラフ巨大地震波源 × 大阪三大水門防災シミュレーション',
     scenario: 'シナリオ',
     seawalls: '防潮堤・水門',
@@ -36,6 +36,10 @@ export const I18N = {
     csvLoaded: 'CSV波源を読み込みました',
     hazardLayer: 'ハザードマップ凡例色で表示',
     landmarkLabels: 'ランドマーク名称表示',
+    backdrop: '周辺地形（大阪平野・六甲・生駒）表示',
+    camera: '視点',
+    views: { overview: '全景', port: '大阪港', gates: '三大水門', city: '市街地', region: '広域', top: '真上' },
+    controlsHint: '左ドラッグ: 回転 / 右ドラッグ: 移動 / ホイール: ズーム / ダブルクリック: 注視点 / WASD・矢印: 前後左右 / Q・E: 上下 (Shiftで高速) / クリック: 地点観察ピン',
   },
   en: {
     appTitle: 'Osaka Tsunami 3D Simulator',
@@ -74,5 +78,9 @@ export const I18N = {
     csvLoaded: 'CSV Wave Source Loaded',
     hazardLayer: 'Hazard Map Legend Colors',
     landmarkLabels: 'Landmark Labels',
+    backdrop: 'Surrounding terrain (Osaka plain, Rokko, Ikoma)',
+    camera: 'View',
+    views: { overview: 'Overview', port: 'Port', gates: 'Floodgates', city: 'City', region: 'Region', top: 'Top' },
+    controlsHint: 'Left-drag: rotate / Right-drag: pan / Wheel: zoom / Double-click: set focus / WASD·arrows: move / Q·E: down·up (Shift = fast) / Click: drop observation pin',
   },
 };

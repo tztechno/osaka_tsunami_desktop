@@ -15,12 +15,13 @@
     },
     "widthM": 16000,
     "heightM": 12000,
-    "groundMin": -14.999399651839667,
-    "groundMax": 88.96482727381898,
+    "groundMin": -14.999971389770508,
+    "groundMax": 31.81704330444336,
     "aerial": {
       "width": 1600,
       "height": 1200
     },
-    "built": "2026-10-21T08:42:23.392Z"
+    "demSource": "GSI DEM5A/DEM10B (land, NoData = sea & rivers) + japan.tif 15 arc-second bathymetry",
+    "built": "2026-10-21T09:58:07.201Z"
   }
 ]

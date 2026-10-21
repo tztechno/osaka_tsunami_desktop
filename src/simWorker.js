@@ -178,6 +178,7 @@ self.onmessage = (e) => {
       break;
     case 'point':
       point = m.point;
+      if (!playing) post(null, true); // show the point's depth right away while paused
       break;
     case 'advance':
       sim.advance(m.seconds);

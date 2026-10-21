@@ -5,15 +5,17 @@
     "name_en": "Ajigawa Sluice Gate",
     "type": "sluice_gate",
     "designHeight": 7.4,
-    "widthM": 70,
+    "widthM": 20,
+    "lon": 135.45235,
+    "lat": 34.67399,
     "points": [
       [
-        11709.6,
-        3220.1
+        9732.7,
+        3813.1
       ],
       [
-        11892,
-        3398.5
+        9894.7,
+        4117.7
       ]
     ],
     "description": "安治川の津波遡上を防ぐアーチ型水門（T.P. +7.4m）。市街地（梅田・野田・中之島）を守る要。",
@@ -25,15 +27,17 @@
     "name_en": "Shirinashigawa Sluice Gate",
     "type": "sluice_gate",
     "designHeight": 6.7,
-    "widthM": 65,
+    "widthM": 20,
+    "lon": 135.46507,
+    "lat": 34.65998,
     "points": [
       [
-        11975.9,
-        4885.4
+        10922.8,
+        5493.1
       ],
       [
-        12158.3,
-        5063.8
+        11018.2,
+        5557.4
       ]
     ],
     "description": "尻無川河口の防潮水門（T.P. +6.7m）。大正区・港区のゼロメートル市街地を防護。",
@@ -45,378 +49,20 @@
     "name_en": "Kizugawa Sluice Gate",
     "type": "sluice_gate",
     "designHeight": 7.2,
-    "widthM": 75,
+    "widthM": 20,
+    "lon": 135.47912,
+    "lat": 34.64521,
     "points": [
       [
-        13161.7,
-        6000.7
+        12169.8,
+        7142.2
       ],
       [
-        13344.1,
-        6179.2
+        12329.5,
+        7200.3
       ]
     ],
-    "description": "木津川河口の水門（T.P. +7.2m）。難波・道頓堀・ミナミ繁華街への津波流入を阻止。",
+    "description": "木津川の防潮水門（T.P. +7.2m）。難波・道頓堀・ミナミ繁華街への津波流入を阻止。",
     "description_en": "Floodgate (T.P. +7.2m) preventing tsunami surge from penetrating into Namba and Dotonbori."
-  },
-  {
-    "id": "tempozan_wall",
-    "name": "大阪港・築港防潮堤",
-    "name_en": "Osaka Port & Tempozan Coastal Seawall",
-    "type": "seawall",
-    "designHeight": 6.8,
-    "widthM": 18,
-    "points": [
-      [
-        7391.6,
-        5171
-      ],
-      [
-        7754.5,
-        5838.6
-      ],
-      [
-        8118.6,
-        6284.4
-      ],
-      [
-        8759,
-        6509.8
-      ]
-    ],
-    "description": "大阪港（天保山・海遊館周辺）の海岸防潮堤。天端高 T.P. +6.8m。",
-    "description_en": "Coastal protection dyke at Osaka Port (Tempozan) with crest elevation T.P. +6.8m."
-  },
-  {
-    "id": "konohana_coastal",
-    "name": "此花区・桜島海岸防潮堤",
-    "name_en": "Konohana & Sakurajima Coastal Seawall",
-    "type": "seawall",
-    "designHeight": 6.8,
-    "widthM": 18,
-    "points": [
-      [
-        6111.7,
-        4609
-      ],
-      [
-        7209.6,
-        4948.1
-      ],
-      [
-        8311.3,
-        4621.5
-      ],
-      [
-        9781.8,
-        3853.2
-      ],
-      [
-        11709.6,
-        3220.1
-      ]
-    ],
-    "description": "USJ・桜島から安治川左岸へと続く海岸防潮堤（T.P. +6.8m）。",
-    "description_en": "Seawall guarding Konohana, USJ, and lower Ajigawa basin (T.P. +6.8m)."
-  },
-  {
-    "id": "minato_taisho_coastal",
-    "name": "港区・大正区外周防潮堤",
-    "name_en": "Minato & Taisho Coastal Defense Wall",
-    "type": "seawall",
-    "designHeight": 6.8,
-    "widthM": 18,
-    "points": [
-      [
-        8759,
-        6509.8
-      ],
-      [
-        9581,
-        7069
-      ],
-      [
-        10676.3,
-        7962.3
-      ],
-      [
-        11864.7,
-        8634.2
-      ],
-      [
-        12785,
-        7973.3
-      ],
-      [
-        13160.8,
-        6178.2
-      ]
-    ],
-    "description": "港区・大正区のゼロメートル地帯を海から囲む連続防潮堤（T.P. +6.8m）。",
-    "description_en": "Continuous coastal dyke encircling below-sea-level urban zones in Minato and Taisho wards."
-  },
-  {
-    "id": "yumeshima_wall",
-    "name": "夢洲外周護岸・防潮堤",
-    "name_en": "Yumeshima Perimeter Seawall",
-    "type": "seawall",
-    "designHeight": 6.5,
-    "widthM": 20,
-    "points": [
-      [
-        3630.4,
-        5703.4
-      ],
-      [
-        3350,
-        6589.2
-      ],
-      [
-        3895.3,
-        7369
-      ],
-      [
-        5453.8,
-        7378.3
-      ]
-    ],
-    "description": "万博会場・IR予定地である夢洲の南西外周護岸（T.P. +6.5m）。",
-    "description_en": "Perimeter coastal defense seawall on Yumeshima Island (T.P. +6.5m)."
-  },
-  {
-    "id": "sakishima_wall",
-    "name": "咲洲（南港）海岸防潮堤",
-    "name_en": "Sakishima (Nanko) Coastal Seawall",
-    "type": "seawall",
-    "designHeight": 6.8,
-    "widthM": 18,
-    "points": [
-      [
-        5457.1,
-        6823.7
-      ],
-      [
-        6092.9,
-        7825.8
-      ],
-      [
-        7279.1,
-        8831
-      ],
-      [
-        8651.3,
-        9393.4
-      ]
-    ],
-    "description": "咲洲コスモスクエア〜南港コンテナ埠頭を取り囲む防潮堤（T.P. +6.8m）。",
-    "description_en": "Seawall protecting Sakishima Island & Nanko Container Terminal (T.P. +6.8m)."
-  },
-  {
-    "id": "yodo_bank",
-    "name": "淀川左岸スーパー堤防",
-    "name_en": "Yodo River Left Bank High-Standard Levee",
-    "type": "seawall",
-    "designHeight": 7.2,
-    "widthM": 25,
-    "points": [
-      [
-        6672.5,
-        2726.4
-      ],
-      [
-        9152.6,
-        1631.1
-      ],
-      [
-        12825.8,
-        -13.3
-      ]
-    ],
-    "description": "此花区・福島区を守る淀川左岸堤防（T.P. +7.2m）。",
-    "description_en": "High-standard flood protection levee along the left bank of the Yodo River."
-  },
-  {
-    "id": "yamato_bank",
-    "name": "大和川右岸防潮堤",
-    "name_en": "Yamato River Right Bank Levee",
-    "type": "seawall",
-    "designHeight": 7,
-    "widthM": 20,
-    "points": [
-      [
-        9097.6,
-        11614.4
-      ],
-      [
-        11388.8,
-        11959.5
-      ],
-      [
-        13680.7,
-        12193.1
-      ]
-    ],
-    "description": "住之江区・南港南側を守る大和川右岸防潮堤（T.P. +7.0m）。",
-    "description_en": "Right bank levee of Yamato River guarding Suminoe ward (T.P. +7.0m)."
-  },
-  {
-    "id": "maishima_wall",
-    "name": "舞洲外周護岸・防潮堤",
-    "name_en": "Maishima Perimeter Seawall",
-    "type": "seawall",
-    "designHeight": 6.8,
-    "widthM": 20,
-    "points": [
-      [
-        4098.1,
-        4153.3
-      ],
-      [
-        3635.2,
-        4927
-      ],
-      [
-        5463.6,
-        5714.4
-      ],
-      [
-        6659.7,
-        4944.9
-      ],
-      [
-        6391.2,
-        3834.1
-      ]
-    ],
-    "description": "スポーツアイランド舞洲の外周を囲む護岸・防潮堤（T.P. +6.8m）。",
-    "description_en": "Coastal protection perimeter surrounding Maishima Sports Island (T.P. +6.8m)."
-  },
-  {
-    "id": "nishiyodogawa_wall",
-    "name": "西淀川区・神崎川/左門殿川防潮堤",
-    "name_en": "Nishiyodogawa & Kanzakigawa Levee",
-    "type": "seawall",
-    "designHeight": 6.8,
-    "widthM": 18,
-    "points": [
-      [
-        5952.5,
-        503.6
-      ],
-      [
-        7790.9,
-        -595.1
-      ],
-      [
-        10082.6,
-        -915.2
-      ],
-      [
-        11915.6,
-        -1127.3
-      ]
-    ],
-    "description": "西淀川区の海抜ゼロメートル地帯を囲む神崎川水系防潮堤（T.P. +6.8m）。",
-    "description_en": "Flood protection levees guarding Nishiyodogawa zero-meter districts (T.P. +6.8m)."
-  },
-  {
-    "id": "suminoe_coastal",
-    "name": "住之江区・南港内港防潮堤",
-    "name_en": "Suminoe & Inner Nanko Seawall",
-    "type": "seawall",
-    "designHeight": 6.8,
-    "widthM": 18,
-    "points": [
-      [
-        8651.3,
-        9393.4
-      ],
-      [
-        10023.8,
-        9955.5
-      ],
-      [
-        11854.9,
-        10519.9
-      ],
-      [
-        12769.1,
-        11079.2
-      ]
-    ],
-    "description": "住之江区臨海部と大和川河口北岸を守る防潮堤（T.P. +6.8m）。",
-    "description_en": "Coastal seawall protecting Suminoe coastal industrial and residential zones (T.P. +6.8m)."
-  },
-  {
-    "id": "ajigawa_riverwalls",
-    "name": "安治川両岸防潮堤・胸壁",
-    "name_en": "Ajigawa River Defense Walls",
-    "type": "seawall",
-    "designHeight": 6.8,
-    "widthM": 16,
-    "points": [
-      [
-        8679.1,
-        4401.7
-      ],
-      [
-        10056.8,
-        3854.7
-      ],
-      [
-        11709.6,
-        3220.1
-      ]
-    ],
-    "description": "此花区と港区を挟む安治川両岸の防潮胸壁（T.P. +6.8m）。",
-    "description_en": "River defense parapet walls along both banks of lower Ajigawa (T.P. +6.8m)."
-  },
-  {
-    "id": "shirinashi_riverwalls",
-    "name": "尻無川両岸防潮堤・胸壁",
-    "name_en": "Shirinashigawa River Defense Walls",
-    "type": "seawall",
-    "designHeight": 6.7,
-    "widthM": 16,
-    "points": [
-      [
-        10043.6,
-        6295
-      ],
-      [
-        11239.3,
-        5524.9
-      ],
-      [
-        11975.9,
-        4885.4
-      ]
-    ],
-    "description": "港区と大正区の境界を流れる尻無川両岸の防潮胸壁（T.P. +6.7m）。",
-    "description_en": "Parapet walls along Shirinashigawa riverbanks protecting Minato and Taisho wards (T.P. +6.7m)."
-  },
-  {
-    "id": "kizugawa_riverwalls",
-    "name": "木津川両岸防潮堤・胸壁",
-    "name_en": "Kizugawa River Defense Walls",
-    "type": "seawall",
-    "designHeight": 7,
-    "widthM": 16,
-    "points": [
-      [
-        11864.7,
-        8634.2
-      ],
-      [
-        12788.9,
-        7196.9
-      ],
-      [
-        13161.7,
-        6000.7
-      ]
-    ],
-    "description": "大正区東側の木津川両岸防潮胸壁（T.P. +7.0m）。",
-    "description_en": "Parapet defense walls along Kizugawa riverbanks protecting eastern Taisho and Naniwa (T.P. +7.0m)."
   }
 ]

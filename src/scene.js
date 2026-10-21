@@ -20,12 +20,46 @@ export const DEPTH_LEGEND = [
   { max: Infinity, color: '#dc7adc', label: '20m〜' },
 ];
 
+/**
+ * Indexed grid mesh in the XZ plane: vertex (i, j) at (xAt(i), heightAt(k), zAt(j)), k = j * nx + i,
+ * with UV (uAt(i), vAt(j)). Row j = 0 is the north edge (smallest z).
+ */
+function gridGeometry(nx, ny, xAt, zAt, heightAt, uAt, vAt) {
+  const pos = new Float32Array(nx * ny * 3);
+  const uv = new Float32Array(nx * ny * 2);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      pos[k * 3] = xAt(i);
+      pos[k * 3 + 1] = heightAt(k);
+      pos[k * 3 + 2] = zAt(j);
+      uv[k * 2] = uAt(i);
+      uv[k * 2 + 1] = vAt(j);
+    }
+  }
+  const index = new Uint32Array((nx - 1) * (ny - 1) * 6);
+  let n = 0;
+  for (let j = 0; j < ny - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+      index[n++] = a; index[n++] = c; index[n++] = b;
+      index[n++] = b; index[n++] = c; index[n++] = d;
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geom.setIndex(new THREE.BufferAttribute(index, 1));
+  geom.computeVertexNormals();
+  return geom;
+}
+
 export class TsunamiScene {
   constructor(canvas) {
     this.canvas = canvas;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#0d1b2a');
-    this.scene.fog = new THREE.FogExp2('#0d1b2a', 0.00008);
+    this.scene.fog = new THREE.FogExp2('#0d1b2a', 0.000018);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -39,7 +73,7 @@ export class TsunamiScene {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    this.camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 1, 100000);
+    this.camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 1, 200000);
     // Initial camera overlooking Osaka Port & City from South-West (looking towards downtown)
     this.camera.position.set(-3000, 2800, 6000);
 
@@ -47,6 +81,9 @@ export class TsunamiScene {
     this.setupControls();
 
     this.groundMesh = null;
+    this.outerMesh = null;
+    this.outer = null;
+    this.waterMask = null;
     this.waterMesh = null;
     this.buildingsMesh = null;
     this.pinMesh = null;
@@ -56,10 +93,11 @@ export class TsunamiScene {
     this.showMaxDepth = false;
     this.buildingFocus = { enabled: false, radius: 3000, x: 0, z: 0 };
     this.viewLocked = false;
+    this.fly = null;
 
-    // Center marker shown on double-click
+    // Rotation-centre marker shown after a double-click
     this.focusMarker = new THREE.Mesh(
-      new THREE.SphereGeometry(20, 16, 12),
+      new THREE.SphereGeometry(1, 16, 12),
       new THREE.MeshBasicMaterial({ color: 0xff4040, transparent: true, opacity: 0.85, depthTest: false })
     );
     this.focusMarker.renderOrder = 10;
@@ -87,20 +125,142 @@ export class TsunamiScene {
     this.sun = sun;
   }
 
+  /**
+   * Free camera: left-drag = rotate, right-drag = pan along the ground, wheel = zoom toward cursor,
+   * W/A/S/D = move, Q/E = down/up, Shift = faster; double-click (main.js) re-centres via flyTo().
+   */
   setupControls() {
     const controls = new OrbitControls(this.camera, this.canvas);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.maxPolarAngle = Math.PI / 2 - 0.02; // Keep above ground
-    controls.minDistance = 50;
-    controls.maxDistance = 45000;
+    controls.dampingFactor = 0.1;
+    controls.screenSpacePanning = false;
+    controls.zoomToCursor = true;
+    controls.maxPolarAngle = Math.PI * 0.497; // keep the view above the horizon
+    controls.minDistance = 5;
+    controls.maxDistance = 90000;
+    controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
     controls.target.set(0, 0, 0);
     this.controls = controls;
+    this.target = controls.target;
+
+    this.keys = new Set();
+    window.addEventListener('keydown', (e) => {
+      if (/INPUT|SELECT|TEXTAREA/.test(e.target?.tagName)) return;
+      this.keys.add(e.code);
+    });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('blur', () => this.keys.clear());
+    this.lastFrameTime = performance.now();
   }
 
-  async loadRegion(meta, ground, aerialUrl, seawallMgr, buildings = []) {
+  applyKeyboard(dt) {
+    if (this.keys.size === 0 || this.viewLocked) return;
+    const dist = this.camera.position.distanceTo(this.target);
+    const fast = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    const speed = Math.max(30, dist * 0.6) * (fast ? 3 : 1) * dt;
+    const fwd = this.camera.getWorldDirection(new THREE.Vector3()).setY(0);
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+    fwd.normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0));
+    const move = new THREE.Vector3();
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) move.add(fwd);
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) move.sub(fwd);
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) move.add(right);
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) move.sub(right);
+    if (this.keys.has('KeyE')) move.y += 1;
+    if (this.keys.has('KeyQ')) move.y -= 1;
+    if (move.lengthSq() === 0) return;
+    move.normalize().multiplyScalar(speed);
+    this.camera.position.add(move);
+    this.target.add(move);
+  }
+
+  /** Double-click: fly so that `p` becomes the centre of rotation / zoom. */
+  flyTo(p, maxDist = 1500, seconds = 0.9) {
+    const off = this.camera.position.clone().sub(this.target);
+    off.setLength(Math.min(off.length(), maxDist));
+    this.animateCameraTo(p.clone().add(off), p, seconds);
+    this.focusMarker.visible = true;
+  }
+
+  animateCameraTo(pos, target, seconds = 1.2) {
+    this.fly = { t: 0, dur: seconds, fromT: this.target.clone(), toT: target.clone(), fromC: this.camera.position.clone(), toC: pos.clone() };
+  }
+
+  /** Camera presets (scene coordinates: x = east, z = south, region centred on the origin). */
+  setCameraView(type) {
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const views = {
+      overview: [V(-9000, 9000, 11000), V(500, 0, 0)],
+      port: [V(-4200, 1300, 3600), V(-1500, 0, 600)],
+      gates: [V(1500, 900, 2600), V(3300, 0, -700)],
+      city: [V(3500, 1100, 3500), V(5500, 0, -1500)],
+      region: [V(-25000, 26000, 32000), V(2000, 0, -2000)],
+      top: [V(0, 19000, 1), V(0, 0, 0)],
+    };
+    const v = views[type];
+    if (v) this.animateCameraTo(v[0], v[1]);
+  }
+
+  setViewLocked(locked) {
+    this.viewLocked = locked;
+    this.controls.enabled = !locked;
+  }
+
+  /** Terrain height at scene (x, z): simulation grid inside, surrounding backdrop outside. */
+  surfaceAt(x, z) {
+    if (this.meta && this.ground) {
+      const { nx, ny, res } = this.meta;
+      const i = Math.floor((x + this.W / 2) / res);
+      const j = Math.floor((z + this.H / 2) / res);
+      if (i >= 0 && j >= 0 && i < nx && j < ny) {
+        const k = j * nx + i;
+        return this.waterMask?.[k] ? 0 : this.ground[k];
+      }
+    }
+    const o = this.outer;
+    if (o) {
+      const i = Math.floor((x - o.offX) / o.res);
+      const j = Math.floor((z - o.offZ) / o.res);
+      if (i >= 0 && j >= 0 && i < o.nx && j < o.ny) return Math.max(0, o.ground[j * o.nx + i]);
+    }
+    return 0;
+  }
+
+  /** Ray-march from the camera to the terrain / water surface (no triangle raycast over 4M faces). */
+  pickSurface(ndcX, ndcY) {
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+    const o = ray.ray.origin;
+    const d = ray.ray.direction;
+    let prev = 0;
+    for (let s = 0; s < this.camera.far; s += 5 * (1 + s / 1500)) {
+      if (o.y + d.y * s <= this.surfaceAt(o.x + d.x * s, o.z + d.z * s)) {
+        let a = prev, b = s;
+        for (let k = 0; k < 24; k++) {
+          const m = (a + b) / 2;
+          if (o.y + d.y * m <= this.surfaceAt(o.x + d.x * m, o.z + d.z * m)) b = m;
+          else a = m;
+        }
+        return new THREE.Vector3(o.x + d.x * b, o.y + d.y * b, o.z + d.z * b);
+      }
+      if (o.y + d.y * s < -100) break;
+      prev = s;
+    }
+    return null;
+  }
+
+  /** Keep the camera at least `clearance` m above the ground. */
+  clampCamera(clearance = 3) {
+    const c = this.camera.position;
+    const g = this.surfaceAt(c.x, c.z) + clearance;
+    if (c.y < g) c.y = g;
+  }
+
+  async loadRegion(meta, ground, aerialUrl, seawallMgr, buildings = [], waterMask = null) {
     this.meta = meta;
     this.ground = ground;
+    this.waterMask = waterMask;
     this.buildings = buildings;
 
     const { nx, ny, res, widthM, heightM } = meta;
@@ -114,18 +274,9 @@ export class TsunamiScene {
       this.groundMesh.material.dispose();
     }
 
-    const geom = new THREE.PlaneGeometry(widthM, heightM, nx - 1, ny - 1);
-    geom.rotateX(-Math.PI / 2);
-
-    const pos = geom.attributes.position.array;
-    for (let j = 0; j < ny; j++) {
-      for (let i = 0; i < nx; i++) {
-        const idx = j * nx + i;
-        const vertIdx = (j * nx + i) * 3;
-        pos[vertIdx + 1] = ground[idx];
-      }
-    }
-    geom.computeVertexNormals();
+    // One vertex per cell centre so the terrain lines up exactly with the simulation grid
+    const geom = gridGeometry(nx, ny, (i) => (i + 0.5) * res - widthM / 2, (j) => (j + 0.5) * res - heightM / 2,
+      (k) => ground[k], (i) => (i + 0.5) / nx, (j) => 1 - (j + 0.5) / ny);
 
     const texLoader = new THREE.TextureLoader();
     const aerialTex = await new Promise((resolve) => {
@@ -163,8 +314,49 @@ export class TsunamiScene {
     // 5. Setup Source Zone 3D Visualizer
     this.setupSourceZone();
 
-    // Adjust camera target to Tempozan / Osaka Port
-    this.controls.target.set(0, 0, 0);
+    this.setCameraView('overview');
+  }
+
+  /**
+   * Surrounding terrain (osaka.tif + aerial) around the simulation region. Vertices sit on the
+   * outer grid's cell corners; the region's edges fall on outer grid lines, and the vertices
+   * strictly inside the region are sunk below the sea bed so the detailed region shows through.
+   */
+  async buildOuterBackdrop(outerMeta, outerGround, outerSea, aerialUrl) {
+    if (this.outerMesh) {
+      this.scene.remove(this.outerMesh);
+      this.outerMesh.geometry.dispose();
+      this.outerMesh.material.map?.dispose();
+      this.outerMesh.material.dispose();
+    }
+    const { nx, ny, res } = outerMeta;
+    const offX = outerMeta.originE - this.meta.originE - this.W / 2;
+    const offZ = this.meta.originN - outerMeta.originN - this.H / 2;
+    this.outer = { nx, ny, res, offX, offZ, ground: outerGround };
+
+    const cell = (i, j) => (i < 0 || j < 0 || i >= nx || j >= ny ? -1 : j * nx + i);
+    const geom = gridGeometry(nx + 1, ny + 1, (i) => offX + i * res, (j) => offZ + j * res, (k) => {
+      const i = k % (nx + 1), j = Math.floor(k / (nx + 1));
+      const x = offX + i * res, z = offZ + j * res;
+      if (x > -this.W / 2 + 1 && x < this.W / 2 - 1 && z > -this.H / 2 + 1 && z < this.H / 2 - 1) return -60;
+      let sum = 0, n = 0;
+      for (const c of [cell(i - 1, j - 1), cell(i, j - 1), cell(i - 1, j), cell(i, j)]) {
+        if (c < 0 || outerSea[c]) continue;
+        sum += outerGround[c];
+        n++;
+      }
+      return n ? sum / n : -0.3; // sea: flat, just under the simulated water surface
+    }, (i) => i / nx, (j) => 1 - j / ny);
+
+    const tex = await new Promise((resolve) => new THREE.TextureLoader().load(aerialUrl, resolve, undefined, () => resolve(null)));
+    if (tex) {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+    }
+    const mat = new THREE.MeshStandardMaterial({ map: tex, color: tex ? 0xffffff : 0x3a4a3a, roughness: 0.95, metalness: 0 });
+    this.outerMesh = new THREE.Mesh(geom, mat);
+    this.outerMesh.receiveShadow = false;
+    this.scene.add(this.outerMesh);
   }
 
   buildBuildingsMesh(buildings, ground) {
@@ -207,7 +399,7 @@ export class TsunamiScene {
       // Sample ground elevation
       const gx = Math.min(nx - 1, Math.max(0, Math.floor(b.x / res)));
       const gy = Math.min(ny - 1, Math.max(0, Math.floor(b.z / res)));
-      const groundH = Math.max(0.5, ground[gy * nx + gx] || 0.5);
+      const groundH = ground[gy * nx + gx] || 0;
 
       dummy.position.set(wx, groundH, wz);
       dummy.scale.set(b.w, b.h, b.d);
@@ -241,8 +433,9 @@ export class TsunamiScene {
     this.wny = wny;
     this.renderStep = step;
 
-    const geom = new THREE.PlaneGeometry(widthM, heightM, wnx - 1, wny - 1);
-    geom.rotateX(-Math.PI / 2);
+    // vertex (i, j) sits on the centre of the sampled simulation cell (i * step, j * step)
+    const geom = gridGeometry(wnx, wny, (i) => (i * step + 0.5) * res - widthM / 2, (j) => (j * step + 0.5) * res - heightM / 2,
+      () => 0, (i) => i / (wnx - 1), (j) => 1 - j / (wny - 1));
 
     const vertCount = wnx * wny;
     const colors = new Float32Array(vertCount * 3);
@@ -338,7 +531,7 @@ export class TsunamiScene {
         // Active water surface: elevate to eta
         pos[vertY] = eta[idx];
 
-        const onLand = zb >= 0;
+        const onLand = this.waterMask ? this.waterMask[groundIdx] === 0 : zb >= 0;
         if (this.showHazardColors && onLand) {
           const matched = DEPTH_LEGEND.find(l => d < l.max);
           c.set(matched ? matched.color : '#dc7adc');
@@ -417,18 +610,20 @@ export class TsunamiScene {
     this.showMaxDepth = enabled;
   }
 
+  /** Observation pin at region-local (worldX, worldZ); drawn at a constant on-screen size. */
   setPin(worldX, worldZ) {
     if (!this.pinMesh) {
-      const geom = new THREE.ConeGeometry(25, 80, 16);
-      geom.rotateX(Math.PI);
-      geom.translate(0, 40, 0);
-      const mat = new THREE.MeshStandardMaterial({ color: 0xff1744, roughness: 0.2, metalness: 0.3 });
-      this.pinMesh = new THREE.Mesh(geom, mat);
-      this.scene.add(this.pinMesh);
+      const group = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({ color: 0xff1744, roughness: 0.3, metalness: 0.2, emissive: 0x550010 });
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.2, 16).rotateX(Math.PI).translate(0, 0.6, 0), mat);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 12).translate(0, 1.45, 0), mat);
+      group.add(cone, head);
+      this.pinMesh = group;
+      this.scene.add(group);
     }
-
-    const groundH = this.getGroundAt(worldX, worldZ);
-    this.pinMesh.position.set(worldX - this.W / 2, groundH + 10, worldZ - this.H / 2);
+    const x = worldX - this.W / 2;
+    const z = worldZ - this.H / 2;
+    this.pinMesh.position.set(x, this.surfaceAt(x, z), z);
     this.pinMesh.visible = true;
   }
 
@@ -444,8 +639,29 @@ export class TsunamiScene {
     return this.ground[gy * nx + gx] || 0;
   }
 
+  /** Interactive frame: keyboard, fly animation, controls, ground clearance, marker sizes. */
   render() {
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastFrameTime) / 1000);
+    this.lastFrameTime = now;
+    this.applyKeyboard(dt);
+    if (this.fly) {
+      const f = this.fly;
+      f.t = Math.min(1, f.t + dt / f.dur);
+      const e = f.t * f.t * (3 - 2 * f.t);
+      this.target.lerpVectors(f.fromT, f.toT, e);
+      this.camera.position.lerpVectors(f.fromC, f.toC, e);
+      if (f.t >= 1) this.fly = null;
+    }
     this.controls.update();
+    this.clampCamera();
+    if (this.pinMesh?.visible) {
+      this.pinMesh.scale.setScalar(Math.max(4, this.camera.position.distanceTo(this.pinMesh.position) * 0.03));
+    }
+    if (this.focusMarker.visible) {
+      this.focusMarker.position.copy(this.target);
+      this.focusMarker.scale.setScalar(Math.max(1, this.camera.position.distanceTo(this.target) * 0.005));
+    }
     this.renderer.render(this.scene, this.camera);
   }
 

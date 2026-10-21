@@ -28,6 +28,12 @@ export function offshoreWaveEta(t, { waveHeight, wavePeriod, hasPreDrawdown }) {
   return waveHeight * sech * sech;
 }
 
+const SPONGE_CELLS = 40; // width of the wave-generating / absorbing zone at the bay edges
+// The boundary CSV (nankai_trough, sampled offshore on the region's edge) / scenario height is
+// generated as the incident wave; reflection from the port walls is computed here.
+const INCIDENT_FACTOR = 1.0;
+const OPEN_WATER_R = 30; // half window (cells) for the open-water test of the relaxation zone
+
 export class TsunamiSimulator {
   constructor({ meta, ground, waterMask = null, seawallManager, buildings = [] }) {
     this.meta = meta;
@@ -58,6 +64,7 @@ export class TsunamiSimulator {
     this.initBuildingMask();
 
     // Initial state: sea cells have eta = 0.0 (sea level), land cells depth = 0
+    this.waveDirectionDeg = 235; // needed by setupBoundary() inside initWater()
     this.initWater();
 
     // Time & Controls
@@ -103,7 +110,8 @@ export class TsunamiSimulator {
       const gy1 = Math.min(ny - 1, Math.ceil((b.z + b.d * 0.5) / res));
       for (let y = gy0; y <= gy1; y++) {
         for (let x = gx0; x <= gx1; x++) {
-          this.bldgMask[y * nx + x] = 1;
+          // footprints reaching over rivers / quays (bridges, piers) must not dam the channel
+          if (this.isLand(y * nx + x)) this.bldgMask[y * nx + x] = 1;
         }
       }
     }
@@ -136,25 +144,60 @@ export class TsunamiSimulator {
     this.setupBoundary();
   }
 
+  /** Is cell i land (incl. zero-metre districts below T.P. 0) rather than open sea / river? */
+  isLand(i) {
+    return this.waterMask ? this.waterMask[i] === 0 : this.ground[i] >= 0;
+  }
+
+  /**
+   * Wave-generating / absorbing relaxation zone along the Osaka Bay edges (west and south; rivers
+   * leaving the north / east edges stay closed). Within SPONGE_CELLS of those edges the water level
+   * and discharge are relaxed towards the incident long wave, so the wave enters while waves
+   * reflected by the port leave the domain instead of building up between the coast and the edge.
+   */
   setupBoundary() {
     const { nx, ny, ground, res } = this;
-    const cells = [];
+    const L = SPONGE_CELLS;
+    // Only open bay water: >= 95 % water within +-OPEN_WATER_R cells, which keeps the zone out of
+    // river mouths (e.g. the Yamato River on the south edge) and away from the quay walls.
+    const R = OPEN_WATER_R;
+    const sat = new Int32Array((nx + 1) * (ny + 1));
     for (let y = 0; y < ny; y++) {
-      if (ground[y * nx] < -3) cells.push(y * nx);
-      if (ground[y * nx + nx - 2] < -3) cells.push(y * nx + nx - 2);
+      let row = 0;
+      for (let x = 0; x < nx; x++) {
+        row += this.isLand(y * nx + x) ? 0 : 1;
+        sat[(y + 1) * (nx + 1) + x + 1] = sat[y * (nx + 1) + x + 1] + row;
+      }
     }
-    for (let x = 0; x < nx - 2; x++) {
-      if (ground[x] < -3) cells.push(x);
-      if (ground[(ny - 1) * nx + x] < -3) cells.push((ny - 1) * nx + x);
+    const waterFrac = (x, y) => {
+      const x0 = Math.max(0, x - R), x1 = Math.min(nx, x + R + 1);
+      const y0 = Math.max(0, y - R), y1 = Math.min(ny, y + R + 1);
+      const n = sat[y1 * (nx + 1) + x1] - sat[y0 * (nx + 1) + x1] - sat[y1 * (nx + 1) + x0] + sat[y0 * (nx + 1) + x0];
+      return n / ((x1 - x0) * (y1 - y0));
+    };
+    const cells = [];
+    const weights = [];
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const d = Math.min(x, ny - 1 - y);
+        if (d >= L) continue;
+        const i = y * nx + x;
+        if (this.isLand(i) || ground[i] > -1 || waterFrac(x, y) < 0.95) continue;
+        cells.push(i);
+        weights.push((1 - d / L) ** 2);
+      }
     }
     const th = (this.waveDirectionDeg * Math.PI) / 180;
-    const kE = -Math.sin(th);
-    const kN = -Math.cos(th);
-    const s = cells.map((i) => (i % nx) * res * kE - Math.floor(i / nx) * res * kN);
-    const sMin = Math.min(...s);
+    this.kE = -Math.sin(th); // propagation direction (east, north)
+    this.kN = -Math.cos(th);
+    const s = cells.map((i) => (i % nx) * res * this.kE - Math.floor(i / nx) * res * this.kN);
+    let sMin = Infinity;
+    for (const v of s) if (v < sMin) sMin = v;
     const c = Math.sqrt(9.80665 * Math.max(5, this.maxSeaDepth || 15));
     this.bcCells = Int32Array.from(cells);
+    this.bcWeight = Float32Array.from(weights);
     this.bcDelay = Float32Array.from(s, (v) => (v - sMin) / c);
+    this.bcEta = new Float32Array(cells.length);
   }
 
   setScenario(scenario) {
@@ -205,7 +248,7 @@ export class TsunamiSimulator {
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
         const idx = z * nx + x;
-        if (ground[idx] >= 0) continue;
+        if (this.isLand(idx)) continue;
         const dist = Math.hypot((x - cx) * res, (z - cz) * res);
         if (dist > radius) continue;
 
@@ -262,13 +305,15 @@ export class TsunamiSimulator {
 
     let overtoppingCount = 0;
 
-    // 1. Boundary Condition: incoming wave from offshore sea cells
+    // 1. Boundary: relax the water level in the bay-edge zone towards the incident wave
     if (!this.bcCells) this.setupBoundary();
-    const { bcCells, bcDelay } = this;
+    const { bcCells, bcDelay, bcWeight, bcEta } = this;
     for (let k = 0; k < bcCells.length; k++) {
       const idx = bcCells[k];
-      const e = this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]);
-      this.eta[idx] = Math.max(this.ground[idx], e);
+      const e = this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]) * INCIDENT_FACTOR;
+      bcEta[k] = e;
+      const target = this.eta[idx] + (e - this.eta[idx]) * bcWeight[k];
+      this.eta[idx] = Math.max(this.ground[idx], target);
       this.depth[idx] = Math.max(0, this.eta[idx] - this.ground[idx]);
     }
 
@@ -314,10 +359,16 @@ export class TsunamiSimulator {
         }
 
         const qOld = qxPrev[i0];
+        // θ-weighted flux (de Almeida et al. 2012): blend with the neighbouring fluxes to damp the
+        // checkerboard instability of the local inertial scheme in deep water
+        const qL = x > 0 ? qxPrev[i0 - 1] : qOld;
+        const qR = x < nx - 2 ? qxPrev[i0 + 1] : qOld;
+        const qTheta = THETA * qOld + (1 - THETA) * 0.5 * (qL + qR);
         const S_h = (eta0 - eta1) / res;
         const denom = 1 + g * dt * n2 * Math.abs(qOld) / Math.pow(hFlow, 7 / 3);
-        const qNew = (qOld + g * hFlow * dt * S_h) / denom;
-        this.qx[i0] = (1 - THETA) * qOld + THETA * qNew;
+        const qNew = (qTheta + g * hFlow * dt * S_h) / denom;
+        const maxQ = hFlow * Math.sqrt(g * hFlow) * 1.5; // Froude limiter
+        this.qx[i0] = Math.max(-maxQ, Math.min(maxQ, qNew));
       }
     }
 
@@ -357,11 +408,26 @@ export class TsunamiSimulator {
         }
 
         const qOld = qyPrev[i0];
+        const qU = y > 0 ? qyPrev[i0 - nx] : qOld;
+        const qD = y < ny - 2 ? qyPrev[i0 + nx] : qOld;
+        const qTheta = THETA * qOld + (1 - THETA) * 0.5 * (qU + qD);
         const S_h = (eta0 - eta1) / res;
         const denom = 1 + g * dt * n2 * Math.abs(qOld) / Math.pow(hFlow, 7 / 3);
-        const qNew = (qOld + g * hFlow * dt * S_h) / denom;
-        this.qy[i0] = (1 - THETA) * qOld + THETA * qNew;
+        const qNew = (qTheta + g * hFlow * dt * S_h) / denom;
+        const maxQ = hFlow * Math.sqrt(g * hFlow) * 1.5;
+        this.qy[i0] = Math.max(-maxQ, Math.min(maxQ, qNew));
       }
+    }
+
+    // Relax the discharge in the bay-edge zone towards the incident long-wave flux q = eta * sqrt(g h)
+    // (only on faces between two water cells, never across a quay wall)
+    for (let k = 0; k < bcCells.length; k++) {
+      const idx = bcCells[k];
+      const h = Math.max(0.5, bcEta[k] - this.ground[idx]);
+      const q = bcEta[k] * Math.sqrt(g * h);
+      const w = bcWeight[k];
+      if (idx % nx < nx - 1 && !this.isLand(idx + 1)) this.qx[idx] += (q * this.kE - this.qx[idx]) * w;
+      if (idx < (ny - 1) * nx && !this.isLand(idx + nx)) this.qy[idx] += (-q * this.kN - this.qy[idx]) * w; // +y (row) = south
     }
 
     // 4. Positivity limiter (de Almeida et al. 2012)
@@ -421,7 +487,7 @@ export class TsunamiSimulator {
         if (newH > hMax) hMax = newH;
         if (newH > this.maxDepth[idx]) this.maxDepth[idx] = newH;
 
-        if (this.ground[idx] >= 0 && newH >= 0.3 && this.arrival[idx] < 0) {
+        if (newH >= 0.3 && this.arrival[idx] < 0 && this.isLand(idx)) {
           this.arrival[idx] = this.simTimeSec;
         }
       }
@@ -441,15 +507,14 @@ export class TsunamiSimulator {
   }
 
   updateStats() {
-    const { N, ground, depth, maxDepth, buildings } = this;
+    const { N, ground, depth, buildings } = this;
     let inundatedLandCells = 0;
     let maxRunup = 0;
 
     for (let i = 0; i < N; i++) {
-      const zb = ground[i];
-      if (zb >= 0 && depth[i] >= 0.05) {
+      if (depth[i] >= 0.05 && this.isLand(i)) {
         inundatedLandCells++;
-        const waterElev = zb + depth[i];
+        const waterElev = ground[i] + depth[i];
         if (waterElev > maxRunup) maxRunup = waterElev;
       }
     }

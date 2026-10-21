@@ -1,138 +1,83 @@
+/**
+ * Preset boundary wave CSVs from nankai_trough results (.cache/nankai_results.json, written by
+ * tools/nankai/run-nankai.ts). The files use nankai_trough's own export formats:
+ *   - *_trimmed.csv: "city trimmed" (方式B) — from 2 min before the first arrival, Time_since_EQ columns
+ *   - *_full.csv:    full timeline (方式A) from the earthquake origin
+ * The sampled point is on the simulation region's west edge (Osaka Bay), where the wave enters.
+ *
+ *   node tools/build-wave-sources.mjs
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const appRoot = path.resolve(__dirname, '..');
+const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const resultsFile = path.join(appRoot, '.cache', 'nankai_results.json');
 const outDir = path.join(appRoot, 'public', 'data', 'wave_sources');
-fs.mkdirSync(outDir, { recursive: true });
 
-function formatHms(seconds) {
-  const s = Math.floor(seconds);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+const SCENARIO = 'cao2012_case3'; // largest wave in Osaka Bay among the Cabinet Office cases
+const POINT = 'osaka_edge_mid';
+const FULL_DURATION_SEC = 10800;
+
+// Same as ChartRenderer.formatHMS in nankai_trough
+function formatHMS(totalSec) {
+  const sec = Math.round(totalSec);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-// 1. Trimmmed wave source: shifted so arrival happens at t = 60s, peak at ~12 min
-function buildTrimmedWave() {
-  const rows = [];
-  rows.push('# Tsunami Boundary Wave Condition for City Simulation (Phase 2)');
-  rows.push('# Location: 大阪港沖 (大阪湾) (Lon: 135.35, Lat: 34.60)');
-  rows.push('# Mode: Trimmed Effective Wave (Shifted to t=0 at 2-min before arrival)');
-  rows.push('# Original Absolute First Arrival: 6480.0 s (1:48:00 after earthquake)');
-  rows.push('# Original Absolute Max Surge: 5.40 m (at 7560.0 s = 2:06:00 after earthquake)');
-  rows.push('# Time Offset: 6360.0 s (Time_since_EQ_sec = Time_sec + 6360.0)');
-  rows.push('Time_sec,Elevation_m,U_velocity_m_s,V_velocity_m_s,Speed_m_s,Direction_deg,Time_since_EQ_sec,Time_since_EQ_hms');
+const row = (r) => `${r.elevation.toFixed(3)},${r.u.toFixed(3)},${r.v.toFixed(3)},${r.speed.toFixed(3)},${r.directionDeg.toFixed(1)}`;
+const write = (name, lines) => {
+  fs.writeFileSync(path.join(outDir, name), '﻿' + lines.join('\r\n'));
+  console.log(`Saved ${name} (${lines.length} lines)`);
+};
 
-  const dt = 3.0; // 3-second intervals
-  const totalSec = 3600; // 60 minutes simulation window
-  const eqOffset = 6360.0;
+function trimmed(pt) {
+  const arrival = pt.firstArrivalSec ?? pt.maxArrivalSec;
+  const tStart = Math.max(0, arrival - 120);
+  const tEnd = Math.max((pt.maxArrivalSec ?? arrival) + 2100, arrival + 2700);
+  const rows = pt.timeHistory.filter((h) => h.timeSec >= tStart && h.timeSec <= tEnd);
+  const t0 = rows[0].timeSec;
+  const t1 = rows[rows.length - 1].timeSec;
+  const lines = [
+    '# Tsunami Boundary Wave Condition for City Simulation (Phase 2)',
+    `# Location: ${pt.name} (Lon: ${pt.lon}, Lat: ${pt.lat})`,
+    '# Mode: Trimmed Effective Wave (Shifted to t=0 at 2-min before arrival)',
+    `# Original Absolute First Arrival: ${pt.firstArrivalSec?.toFixed(1) ?? 'N/A'} s (${pt.firstArrivalSec !== undefined ? formatHMS(pt.firstArrivalSec) : 'N/A'} after earthquake)`,
+    `# Original Absolute Max Surge: ${pt.maxWaveHeight ?? 0} m (at ${pt.maxArrivalSec?.toFixed(1) ?? 'N/A'} s = ${pt.maxArrivalSec !== undefined ? formatHMS(pt.maxArrivalSec) : 'N/A'} after earthquake)`,
+    `# Time Offset: -${t0.toFixed(1)} s (Absolute_Time_sec = Time_sec + ${t0.toFixed(1)})`,
+    `# Trimmed Window (time since earthquake): ${formatHMS(t0)} - ${formatHMS(t1)}`,
+    '# Time_since_EQ_sec / Time_since_EQ_hms: elapsed time since the earthquake origin (rupture at 0 s)',
+    'Time_sec,Elevation_m,U_velocity_m_s,V_velocity_m_s,Speed_m_s,Direction_deg,Time_since_EQ_sec,Time_since_EQ_hms',
+  ];
+  for (const r of rows) lines.push(`${(r.timeSec - t0).toFixed(1)},${row(r)},${r.timeSec.toFixed(1)},${formatHMS(r.timeSec)}`);
+  return lines;
+}
 
-  for (let t = 0; t <= totalSec; t += dt) {
-    const eqTime = t + eqOffset;
-    let eta = 0;
-    let speed = 0;
+function full(pt) {
+  const lines = [
+    '# Tsunami Wave Boundary Condition for Phase 2 Simulation (Full Timeline)',
+    `# Location: ${pt.name} (Lon: ${pt.lon}, Lat: ${pt.lat})`,
+    `# Max Wave Height: ${pt.maxWaveHeight ?? 0} m, First Arrival: ${pt.firstArrivalSec ?? 'N/A'} s`,
+    'Time_sec,Elevation_m,U_velocity_m_s,V_velocity_m_s,Speed_m_s,Direction_deg',
+  ];
+  for (const r of pt.timeHistory) if (r.timeSec <= FULL_DURATION_SEC) lines.push(`${r.timeSec.toFixed(1)},${row(r)}`);
+  return lines;
+}
 
-    if (t < 60) {
-      // Quiet before arrival
-      eta = 0.0;
-      speed = 0.0;
-    } else if (t < 420) {
-      // 1st surge: rises to +2.4m at t = 240s, then drawdown to -1.8m at t = 420s
-      const tau = (t - 60) / 360;
-      eta = 2.4 * Math.sin(tau * Math.PI * 1.5);
-      speed = Math.abs(eta) * 0.45;
-    } else if (t < 1140) {
-      // 2nd MASSIVE PEAK: rises from -1.8m to +5.40m at t = 720s (12 min), then recedes
-      const tau = (t - 420) / 720;
-      const wave = Math.sin(tau * Math.PI);
-      eta = -1.8 * (1 - wave) + 5.40 * wave;
-      speed = Math.max(0.2, (eta + 2.0) * 0.55);
-    } else if (t < 2100) {
-      // 3rd sustained surge: +3.2m
-      const tau = (t - 1140) / 960;
-      eta = 1.0 + 2.2 * Math.sin(tau * Math.PI * 2);
-      speed = Math.max(0.1, Math.abs(eta) * 0.35);
-    } else {
-      // Tail oscillations: decaying long swell (+1.5m to -0.8m)
-      const tau = (t - 2100) / 1500;
-      const decay = Math.exp(-tau * 1.2);
-      eta = 1.6 * decay * Math.sin(tau * Math.PI * 4);
-      speed = Math.max(0.05, Math.abs(eta) * 0.25);
-    }
-
-    // Direction: incoming from South-West (235° azimuth, propagating towards 55° NE)
-    // U > 0 (Eastward), V > 0 (Northward)
-    const angleRad = (55 * Math.PI) / 180;
-    const u = +(speed * Math.sin(angleRad)).toFixed(3);
-    const v = +(speed * Math.cos(angleRad)).toFixed(3);
-
-    rows.push(`${t.toFixed(1)},${eta.toFixed(3)},${u},${v},${speed.toFixed(3)},235.0,${eqTime.toFixed(1)},${formatHms(eqTime)}`);
+function main() {
+  if (!fs.existsSync(resultsFile)) {
+    console.error(`${resultsFile} not found: run tools/nankai/run-nankai.ts first (see its header)`);
+    process.exit(1);
   }
-
-  const file = path.join(outDir, 'nankai_trough_osaka_trimmed.csv');
-  fs.writeFileSync(file, rows.join('\n'));
-  console.log(`Saved ${file} (${rows.length} rows)`);
+  const results = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
+  const pt = results[SCENARIO].points.find((p) => p.id === POINT);
+  console.log(`${results[SCENARIO].name} @ ${pt.name}: max ${pt.maxWaveHeight} m at ${formatHMS(pt.maxArrivalSec)}, first arrival ${formatHMS(pt.firstArrivalSec)}`);
+  fs.mkdirSync(outDir, { recursive: true });
+  write('nankai_trough_osaka_trimmed.csv', trimmed(pt));
+  write('nankai_trough_osaka_full.csv', full(pt));
 }
 
-// 2. Full timeline wave source: 2.5 hours (9000 seconds)
-function buildFullWave() {
-  const rows = [];
-  rows.push('# Tsunami Boundary Wave Condition for City Simulation (Phase 2)');
-  rows.push('# Location: 大阪港沖 (大阪湾) (Lon: 135.35, Lat: 34.60)');
-  rows.push('# Mode: Full Timeline (From earthquake origin t=0 to 2.5 hours)');
-  rows.push('# Original Absolute First Arrival: 6480.0 s (1:48:00 after earthquake)');
-  rows.push('# Original Absolute Max Surge: 5.40 m (at 7560.0 s = 2:06:00 after earthquake)');
-  rows.push('# Time Offset: 0.0 s');
-  rows.push('Time_sec,Elevation_m,U_velocity_m_s,V_velocity_m_s,Speed_m_s,Direction_deg,Time_since_EQ_sec,Time_since_EQ_hms');
-
-  const dt = 5.0; // 5-second intervals
-  const totalSec = 9000; // 150 minutes
-
-  for (let t = 0; t <= totalSec; t += dt) {
-    let eta = 0;
-    let speed = 0;
-
-    if (t < 3600) {
-      // First 60 min: tiny precursors
-      const tau = t / 3600;
-      eta = 0.15 * Math.sin(tau * Math.PI * 4);
-      speed = 0.05;
-    } else if (t < 6480) {
-      // 60-108 min: gradual draw / small surge (+0.6m to -0.8m)
-      const tau = (t - 3600) / 2880;
-      eta = -0.5 * Math.sin(tau * Math.PI * 2);
-      speed = 0.15;
-    } else if (t < 7560) {
-      // 108-126 min: First big surge to +5.40m!
-      const tau = (t - 6480) / 1080;
-      eta = -0.8 * (1 - tau) + 5.40 * Math.sin(tau * Math.PI * 0.5);
-      speed = Math.max(0.2, (eta + 1.0) * 0.5);
-    } else if (t < 8400) {
-      // 126-140 min: drawdown to -2.0m
-      const tau = (t - 7560) / 840;
-      eta = 5.40 * (1 - tau) - 2.0 * Math.sin(tau * Math.PI * 0.5);
-      speed = Math.abs(eta) * 0.4;
-    } else {
-      // 140-150 min: second surge rising to +3.8m
-      const tau = (t - 8400) / 600;
-      eta = -2.0 * (1 - tau) + 3.8 * Math.sin(tau * Math.PI * 0.5);
-      speed = Math.max(0.15, (eta + 2.0) * 0.4);
-    }
-
-    const angleRad = (55 * Math.PI) / 180;
-    const u = +(speed * Math.sin(angleRad)).toFixed(3);
-    const v = +(speed * Math.cos(angleRad)).toFixed(3);
-
-    rows.push(`${t.toFixed(1)},${eta.toFixed(3)},${u},${v},${speed.toFixed(3)},235.0,${t.toFixed(1)},${formatHms(t)}`);
-  }
-
-  const file = path.join(outDir, 'nankai_trough_osaka_full.csv');
-  fs.writeFileSync(file, rows.join('\n'));
-  console.log(`Saved ${file} (${rows.length} rows)`);
-}
-
-buildTrimmedWave();
-buildFullWave();
+main();

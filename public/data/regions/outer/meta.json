@@ -1,0 +1,21 @@
+{
+  "name": "outer",
+  "label": "大阪平野・六甲・生駒 広域背景 (osaka.tif)",
+  "label_en": "Osaka Plain, Rokko & Ikoma Backdrop (osaka.tif)",
+  "nx": 627,
+  "ny": 559,
+  "res": 100,
+  "widthM": 62700,
+  "heightM": 55900,
+  "crs": "EPSG:6674",
+  "originE": -82800,
+  "originN": -121600,
+  "groundMin": -99.85083770751953,
+  "groundMax": 1120.3157613613157,
+  "aerial": {
+    "width": 3072,
+    "height": 2739
+  },
+  "demSource": "osaka.tif (1 arc-second DEM, land) + GSI dem_png sea mask + japan.tif bathymetry",
+  "built": "2026-10-21T11:20:19.728Z"
+}

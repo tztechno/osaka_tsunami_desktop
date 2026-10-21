@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { TsunamiScene } from './scene.js';
 import { SeawallManager } from './seawall.js';
 import { SimClient } from './simClient.js';
@@ -39,13 +40,21 @@ async function init() {
     console.warn('water.u8 not loaded, falling back to elevation-based mask:', e);
   }
 
-  // 2. Fetch Buildings
+  // 2. Fetch Buildings (footprints whose centre lies on a river / the sea are bridges or piers)
   let buildings = [];
   try {
     const bldRes = await fetch('data/regions/osaka_port/buildings.json');
     if (bldRes.ok) buildings = await bldRes.json();
   } catch (e) {
     console.warn('Buildings not loaded:', e);
+  }
+  if (waterMask) {
+    const { nx, ny, res } = meta;
+    buildings = buildings.filter((b) => {
+      const i = Math.min(nx - 1, Math.max(0, Math.floor(b.x / res)));
+      const j = Math.min(ny - 1, Math.max(0, Math.floor(b.z / res)));
+      return waterMask[j * nx + i] === 0;
+    });
   }
 
   // 3. Initialize Seawall Manager
@@ -55,7 +64,22 @@ async function init() {
   // 4. Initialize 3D Scene
   const canvas = document.getElementById('gl-canvas');
   scene = new TsunamiScene(canvas);
-  await scene.loadRegion(meta, ground, 'data/regions/osaka_port/aerial.jpg', seawallMgr, buildings);
+  await scene.loadRegion(meta, ground, 'data/regions/osaka_port/aerial.jpg', seawallMgr, buildings, waterMask);
+
+  // 4b. Surrounding terrain backdrop (osaka.tif + aerial): Osaka plain, Rokko, Ikoma
+  try {
+    const outerMetaRes = await fetch('data/regions/outer/meta.json');
+    if (outerMetaRes.ok) {
+      const outerMeta = await outerMetaRes.json();
+      const [g, sea] = await Promise.all([
+        fetch('data/regions/outer/ground.f32').then((r) => r.arrayBuffer()),
+        fetch('data/regions/outer/sea.u8').then((r) => r.arrayBuffer()),
+      ]);
+      await scene.buildOuterBackdrop(outerMeta, new Float32Array(g), new Uint8Array(sea), 'data/regions/outer/aerial.jpg');
+    }
+  } catch (e) {
+    console.warn('Backdrop terrain not loaded:', e);
+  }
 
   // 5. Initialize Labels
   const labelsContainer = document.getElementById('labels-container');
@@ -293,36 +317,45 @@ function setupEventListeners(canvas) {
     if (recordAbortController) recordAbortController.abort();
   });
 
-  // Point observation click & pulse click
-  canvas.addEventListener('click', (e) => {
+  // Point observation click & pulse click. A drag (orbit / pan) is not a click; a double-click
+  // re-centres the view, so the single-click action waits until a second click is ruled out.
+  const pick = (e) => {
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Raycast onto ground
-    const mouse = {
-      x: (x / rect.width) * 2 - 1,
-      y: -(y / rect.height) * 2 + 1,
-    };
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, scene.camera);
-
-    const intersects = raycaster.intersectObject(scene.groundMesh);
-    if (intersects.length > 0) {
-      const p = intersects[0].point;
+    return scene.pickSurface(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  };
+  let downAt = null;
+  let clickTimer = null;
+  canvas.addEventListener('pointerdown', (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener('click', (e) => {
+    if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 5) return;
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => {
+      const p = pick(e);
+      if (!p) return;
       const worldX = p.x + meta.widthM / 2;
       const worldZ = p.z + meta.heightM / 2;
-
+      if (worldX < 0 || worldZ < 0 || worldX >= meta.widthM || worldZ >= meta.heightM) return; // backdrop
       if (pulseMode) {
-        // Trigger artificial pulse wave
         simClient.injectWave({ worldX, worldZ, height: 4.5, radius: 250 });
       } else {
-        // Observe point
         scene.setPin(worldX, worldZ);
         simClient.setPoint({ worldX, worldZ });
+        chart.reset?.();
       }
-    }
+    }, 250);
+  });
+  canvas.addEventListener('dblclick', (e) => {
+    clearTimeout(clickTimer);
+    const p = pick(e);
+    if (p) scene.flyTo(p);
+  });
+
+  // Camera presets / backdrop toggle
+  document.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => scene.setCameraView(btn.dataset.view));
+  });
+  document.getElementById('chk-backdrop').addEventListener('change', (e) => {
+    if (scene.outerMesh) scene.outerMesh.visible = e.target.checked;
   });
 
   // Clear pin
@@ -343,6 +376,7 @@ function setupEventListeners(canvas) {
   window.addEventListener('resize', () => {
     scene.resize(window.innerWidth, window.innerHeight);
   });
+  scene.resize(window.innerWidth, window.innerHeight);
 }
 
 function handleCsvFile(file) {
@@ -372,6 +406,13 @@ function updateLanguageUI() {
   document.getElementById('btn-play').textContent = isPlaying ? (currentLang === 'en' ? '⏸ Pause' : '⏸ 停止') : (currentLang === 'en' ? '▶ Play' : '▶ 再生');
   document.getElementById('btn-reset').textContent = currentLang === 'en' ? '↺ Reset' : '↺ リセット';
   document.getElementById('txt-sec-export').textContent = currentLang === 'en' ? 'Export' : 'データ・動画出力';
+
+  document.getElementById('txt-chk-backdrop').textContent = dict.backdrop;
+  document.getElementById('txt-sec-camera').textContent = dict.camera;
+  document.getElementById('txt-controls-hint').textContent = dict.controlsHint;
+  for (const [view, label] of Object.entries(dict.views)) {
+    document.getElementById(`btn-view-${view}`).textContent = label;
+  }
 
   labelMgr.setLanguage(currentLang);
 }
