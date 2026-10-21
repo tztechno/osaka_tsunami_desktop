@@ -129,6 +129,45 @@ body {
   gap: 14px;
 }
 
+/* Timeline: computed portion behind the playback slider */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.timeline-track {
+  position: relative;
+  height: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.timeline-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.timeline-computed {
+  position: absolute;
+  left: 0;
+  width: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 229, 255, 0.45);
+}
+
+.timeline-track input[type="range"] {
+  position: relative;
+  background: transparent;
+}
+
 .view-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

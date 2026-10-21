@@ -117,15 +117,31 @@
           <span>⏱️</span> <span id="txt-sec-controls">シミュレーション操作</span>
         </div>
         <div class="play-row">
-          <button id="btn-play" class="btn-primary">▶ 再生</button>
-          <button id="btn-reset">↺ リセット</button>
+          <button id="btn-play" class="btn-primary">▶ 計算・再生</button>
+          <button id="btn-reset">⏮ 先頭へ</button>
+        </div>
+        <!-- Timeline: computed range (bar) and playback position (slider) -->
+        <div class="timeline">
+          <div class="timeline-track">
+            <div id="timeline-computed" class="timeline-computed"></div>
+            <input type="range" id="slider-timeline" min="0" max="1" step="1" value="0">
+          </div>
+          <div class="slider-label">
+            <span id="txt-timeline">00:00 / 00:00</span>
+            <span id="txt-compute-status" class="slider-val">未計算</span>
+          </div>
         </div>
         <div class="slider-group" style="margin-top: 4px;">
           <div class="slider-label">
-            <span id="txt-label-speed">計算速度</span>
-            <span id="val-sim-speed" class="slider-val">1.0x</span>
+            <span id="txt-label-speed">再生速度</span>
           </div>
-          <input type="range" id="slider-sim-speed" min="0.5" max="5.0" step="0.5" value="1.0">
+          <select id="select-play-speed">
+            <option value="10">10倍速</option>
+            <option value="30">30倍速</option>
+            <option value="60" selected>60倍速（1秒で1分）</option>
+            <option value="120">120倍速</option>
+            <option value="300">300倍速</option>
+          </select>
         </div>
       </section>
 
@@ -137,6 +153,10 @@
         <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; cursor: pointer;">
           <input type="checkbox" id="chk-labels" checked>
           <span id="txt-chk-labels">ランドマーク名称ラベル表示</span>
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; cursor: pointer;">
+          <input type="checkbox" id="chk-exaggerate" checked>
+          <span id="txt-chk-exaggerate">海面の上下を5倍に強調表示（表示のみ）</span>
         </label>
         <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; cursor: pointer;">
           <input type="checkbox" id="chk-backdrop" checked>

@@ -91,6 +91,9 @@ export class TsunamiScene {
 
     this.showHazardColors = false;
     this.showMaxDepth = false;
+    // Display-only vertical exaggeration of the open-water level (sea / rivers), so metre-scale
+    // tsunami waves are visible across the 16 km bay; land inundation is drawn at true depth
+    this.waterExaggeration = 5;
     this.buildingFocus = { enabled: false, radius: 3000, x: 0, z: 0 };
     this.viewLocked = false;
     this.fly = null;
@@ -529,7 +532,8 @@ export class TsunamiScene {
         }
 
         // Active water surface: elevate to eta
-        pos[vertY] = eta[idx];
+        const openWater = this.waterMask ? this.waterMask[groundIdx] === 1 : zb < 0;
+        pos[vertY] = openWater ? eta[idx] * this.waterExaggeration : eta[idx];
 
         const onLand = this.waterMask ? this.waterMask[groundIdx] === 0 : zb >= 0;
         if (this.showHazardColors && onLand) {

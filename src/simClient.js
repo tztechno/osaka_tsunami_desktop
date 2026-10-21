@@ -3,7 +3,9 @@
  * and offers promise-based requests (advance for recording, CSV export).
  */
 export class SimClient {
-  constructor({ meta, ground, waterMask = null, buildings, seawallMgr, renderStep = 2, onFrame }) {
+  constructor({ meta, ground, waterMask = null, buildings, seawallMgr, renderStep = 2, onFrame, onKeyframe, onComputeDone }) {
+    this.onKeyframe = onKeyframe;
+    this.onComputeDone = onComputeDone;
     this.meta = meta;
     this.waterMask = waterMask;
     this.onFrame = onFrame;
@@ -41,6 +43,10 @@ export class SimClient {
         this.pending.get(m.reqId)?.(m);
         this.pending.delete(m.reqId);
       }
+    } else if (m.type === 'keyframe') {
+      this.onKeyframe?.(m);
+    } else if (m.type === 'computeDone') {
+      this.onComputeDone?.(m);
     } else if (m.type === 'csv') {
       this.pending.get(m.reqId)?.(m.csv);
       this.pending.delete(m.reqId);
@@ -97,6 +103,15 @@ export class SimClient {
 
   play() {
     this.worker.postMessage({ type: 'play' });
+  }
+
+  /** Compute `durationSec` ahead from the current state, posting keyframes every `intervalSec`. */
+  compute(durationSec, intervalSec) {
+    this.worker.postMessage({ type: 'compute', durationSec, intervalSec });
+  }
+
+  cancelCompute() {
+    this.worker.postMessage({ type: 'cancelCompute' });
   }
 
   setSpeed(speed) {

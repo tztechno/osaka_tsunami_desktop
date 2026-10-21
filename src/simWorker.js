@@ -107,6 +107,41 @@ function post(reqId, force = false) {
   return true;
 }
 
+// Ahead-of-playback computation: run to `end`, posting a compact keyframe every `interval`
+// simulated seconds (water level in cm, foam, wet buildings, stats) for timeline playback.
+let compute = null;
+
+function postKeyframe() {
+  const f = allocFrame();
+  fillFrame(f);
+  sim.updateStats();
+  const eta = new Int16Array(f.eta.length);
+  for (let k = 0; k < eta.length; k++) eta[k] = Math.round(Math.max(-327, Math.min(327, f.eta[k])) * 100);
+  self.postMessage(
+    { type: 'keyframe', t: sim.simTimeSec, eta, foam: f.foam, bldgWet: f.bldgWet, stats: { ...sim.stats }, end: compute.end },
+    [eta.buffer, f.foam.buffer, f.bldgWet.buffer]
+  );
+}
+
+function computeTick() {
+  if (!compute) return;
+  const t0 = performance.now();
+  while (compute && performance.now() - t0 < 100) {
+    const remaining = compute.next - sim.simTimeSec;
+    if (remaining > 1e-6) {
+      sim.step(Math.min(sim.stableDt(), remaining));
+      continue;
+    }
+    postKeyframe();
+    compute.next += compute.interval;
+    if (compute.next > compute.end + 1e-6) {
+      self.postMessage({ type: 'computeDone', t: sim.simTimeSec });
+      compute = null;
+    }
+  }
+  if (compute) setTimeout(computeTick, 0);
+}
+
 function tick() {
   if (!playing || !sim) return;
   const t0 = performance.now();
@@ -145,6 +180,7 @@ self.onmessage = (e) => {
       }
       break;
     case 'scenario': {
+      compute = null;
       const sc = { ...m.scenario };
       if (sc.waveProfile) {
         sc.waveProfile = WaveProfile.deserialize(sc.waveProfile);
@@ -154,6 +190,7 @@ self.onmessage = (e) => {
       break;
     }
     case 'waveProfile':
+      compute = null;
       sim.setWaveProfile(WaveProfile.deserialize(m.profile));
       post(null, true);
       break;
@@ -165,6 +202,7 @@ self.onmessage = (e) => {
       sim.setCustomWave(m.params);
       break;
     case 'reset':
+      compute = null;
       sim.reset();
       post(null, true);
       break;
@@ -179,6 +217,14 @@ self.onmessage = (e) => {
       break;
     case 'speed':
       speed = m.speed;
+      break;
+    case 'compute':
+      playing = false;
+      compute = { end: sim.simTimeSec + m.durationSec, interval: m.intervalSec, next: sim.simTimeSec };
+      computeTick();
+      break;
+    case 'cancelCompute':
+      compute = null;
       break;
     case 'point':
       point = m.point;
