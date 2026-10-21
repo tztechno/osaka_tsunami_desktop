@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Osaka Tsunami 3D Simulator — 大阪市津波 3Dシミュレーター (PLATEAU × Three.js)</title>
+  <meta name="description" content="PLATEAU 3D都市モデルと海底水深データ(japan.tif/osaka.tif)に基づく大阪市・大阪港のリアルタイム津波シミュレーター。南海トラフ巨大地震波源CSV連携と三大水門(安治川・尻無川・木津川水門)の治水検証に対応。">
+  <link rel="stylesheet" href="./src/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- 3D Canvas -->
+    <canvas id="gl-canvas"></canvas>
+
+    <!-- 3D Map Labels Layer -->
+    <div id="labels-container"></div>
+
+    <!-- Header Overlay -->
+    <header class="app-header glass-panel">
+      <div class="brand-icon">🌊</div>
+      <div class="title-group">
+        <h1 id="txt-app-title">Osaka Tsunami 3D Simulator</h1>
+        <p id="txt-app-subtitle">PLATEAU 3D × 南海トラフ巨大地震 × 大阪三大水門防災シミュレーション</p>
+      </div>
+      <button id="btn-lang" class="lang-btn">English</button>
+    </header>
+
+    <!-- Top-Right Impact Meters HUD -->
+    <aside class="hud-panel glass-panel">
+      <div class="meter-card">
+        <span class="meter-val" id="hud-sim-time">00:00</span>
+        <span class="meter-unit" id="txt-unit-min">分:秒</span>
+        <span class="meter-label" id="txt-label-time">経過時間</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-offshore-wave">0.0</span>
+        <span class="meter-unit">m</span>
+        <span class="meter-label" id="txt-label-wave">沖合津波高</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-runup">0.0</span>
+        <span class="meter-unit">m</span>
+        <span class="meter-label" id="txt-label-runup">最大遡上高</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-area">0.0</span>
+        <span class="meter-unit">ha</span>
+        <span class="meter-label" id="txt-label-area">浸水面積</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-bldgs">0</span>
+        <span class="meter-unit">棟</span>
+        <span class="meter-label" id="txt-label-bldgs">浸水建物</span>
+      </div>
+      <div class="meter-card">
+        <span class="meter-val" id="hud-overtop" style="color: #10b981;">SAFE</span>
+        <span class="meter-unit" id="hud-overtop-tag">防護中</span>
+        <span class="meter-label" id="txt-label-overtop">水門・堤防</span>
+      </div>
+    </aside>
+
+    <!-- Left Control Sidebar -->
+    <nav class="control-sidebar glass-panel">
+      <!-- Scenario Selector -->
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>🎯</span> <span id="txt-sec-scenario">津波シナリオ</span>
+        </div>
+        <select id="select-scenario">
+          <option value="nankai_osaka_trimmed">南海トラフ巨大地震 (大阪港想定 5.4m)</option>
+          <option value="nankai_osaka_full">南海トラフ巨大地震 (2.5時間フルタイムライン)</option>
+          <option value="extreme_megathrust">想定超過巨大津波 (波高 7.5m・越流検証)</option>
+          <option value="ansei_nankai_1854">歴史津波 安政南海地震 (1854年再現 3.5m)</option>
+          <option value="custom">カスタム津波パラメータ</option>
+        </select>
+        <p id="scenario-desc" style="font-size: 11px; color: var(--text-dim); line-height: 1.4;"></p>
+      </section>
+
+      <!-- CSV Wave Source Drag & Drop (memo.md requirement 6) -->
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>📁</span> <span id="txt-sec-csv">波源CSV連携 (nankai_trough)</span>
+        </div>
+        <div id="drop-zone" class="drop-zone">
+          <span id="txt-drop-zone">nankai_trough出力CSVをドロップ</span>
+          <input type="file" id="csv-file-input" accept=".csv" style="display: none;">
+        </div>
+        <div id="csv-info" style="display: none; font-size: 10px; color: var(--accent-cyan);"></div>
+      </section>
+
+      <!-- Seawall & Sluice Gate Control -->
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>🛡️</span> <span id="txt-sec-seawall">防潮堤・三大水門制御</span>
+        </div>
+        <select id="select-seawall">
+          <option value="sluice_closed">三大水門：全閉 (設計防御 T.P.+7.4m)</option>
+          <option value="sluice_open">三大水門：全開・未閉鎖 (遡上検証)</option>
+          <option value="no_seawall">防潮堤・水門なし (自然海岸)</option>
+          <option value="custom">防潮堤・水門高さ可変</option>
+        </select>
+        <div id="custom-seawall-group" class="slider-group" style="display: none;">
+          <div class="slider-label">
+            <span>水門・堤防天端高 (T.P.)</span>
+            <span id="val-seawall-h" class="slider-val">7.0m</span>
+          </div>
+          <input type="range" id="slider-seawall-h" min="0" max="15" step="0.5" value="7.0">
+        </div>
+      </section>
+
+      <!-- Custom Wave Sliders (when custom mode) -->
+      <section id="sec-custom-wave" class="sidebar-section" style="display: none;">
+        <div class="section-title">
+          <span>⚙️</span> <span id="txt-sec-custom">波形パラメータ</span>
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>沖合波高</span>
+            <span id="val-custom-h" class="slider-val">5.0m</span>
+          </div>
+          <input type="range" id="slider-custom-h" min="1" max="15" step="0.5" value="5.0">
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>周期</span>
+            <span id="val-custom-period" class="slider-val">30分</span>
+          </div>
+          <input type="range" id="slider-custom-period" min="5" max="60" step="5" value="30">
+        </div>
+        <div class="slider-group">
+          <div class="slider-label">
+            <span>来襲方向</span>
+            <span id="val-custom-dir" class="slider-val">235° (南西)</span>
+          </div>
+          <input type="range" id="slider-custom-dir" min="0" max="360" step="5" value="235">
+        </div>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; cursor: pointer; margin-top: 4px;">
+          <input type="checkbox" id="chk-pulse-mode">
+          <span id="txt-chk-pulse">水面クリックで人工波を発生</span>
+        </label>
+      </section>
+
+      <!-- Simulation Play Controls -->
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>⏱️</span> <span id="txt-sec-controls">シミュレーション操作</span>
+        </div>
+        <div class="play-row">
+          <button id="btn-play" class="btn-primary">▶ 再生</button>
+          <button id="btn-reset">↺ リセット</button>
+        </div>
+        <div class="slider-group" style="margin-top: 4px;">
+          <div class="slider-label">
+            <span id="txt-label-speed">計算速度</span>
+            <span id="val-sim-speed" class="slider-val">1.0x</span>
+          </div>
+          <input type="range" id="slider-sim-speed" min="0.5" max="5.0" step="0.5" value="1.0">
+        </div>
+      </section>
+
+      <!-- Layer & Display Toggles -->
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>🗺️</span> <span id="txt-sec-display">表示設定</span>
+        </div>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; cursor: pointer;">
+          <input type="checkbox" id="chk-labels" checked>
+          <span id="txt-chk-labels">ランドマーク名称ラベル表示</span>
+        </label>
+      </section>
+
+      <!-- Export Buttons -->
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>💾</span> <span id="txt-sec-export">データ・動画出力</span>
+        </div>
+        <div class="btn-group">
+          <button id="btn-export-csv">📊 結果CSV</button>
+          <button id="btn-record-mp4">🎥 MP4録画</button>
+        </div>
+      </section>
+    </nav>
+
+    <!-- Bottom-Right Hydrograph Chart -->
+    <aside class="chart-panel glass-panel">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--accent-cyan);" id="txt-chart-title">地点観察ハイドログラフ</span>
+        <button id="btn-clear-pin" style="width: auto; padding: 2px 8px; font-size: 10px;">ピン解除</button>
+      </div>
+      <canvas id="depth-canvas" width="360" height="120"></canvas>
+    </aside>
+
+    <!-- Bottom-Left Legend Panel -->
+    <footer class="legend-panel glass-panel">
+      <span style="font-weight: 600; color: var(--accent-cyan);">浸水深凡例:</span>
+      <div class="legend-item"><div class="legend-color" style="background: #ffffb3;"></div><span>〜0.3m</span></div>
+      <div class="legend-item"><div class="legend-color" style="background: #f8e1a6;"></div><span>0.5〜1m</span></div>
+      <div class="legend-item"><div class="legend-color" style="background: #ffd8c0;"></div><span>1〜3m</span></div>
+      <div class="legend-item"><div class="legend-color" style="background: #ffb7b7;"></div><span>3〜5m</span></div>
+      <div class="legend-item"><div class="legend-color" style="background: #ff9191;"></div><span>5〜10m</span></div>
+      <div class="legend-item"><div class="legend-color" style="background: #dc7adc;"></div><span>10m〜</span></div>
+    </footer>
+
+    <!-- Video Recording Modal -->
+    <div id="record-modal" class="modal-overlay" style="display: none;">
+      <div class="modal-content glass-panel">
+        <h3 style="font-size: 14px; font-weight: 700; color: var(--accent-cyan);">3Dシミュレーション MP4録画中...</h3>
+        <p style="font-size: 11px; color: var(--text-dim);" id="record-status">フレームを生成しています</p>
+        <div class="progress-bar-bg">
+          <div id="record-progress-fill" class="progress-bar-fill"></div>
+        </div>
+        <button id="btn-cancel-record" style="align-self: flex-end; width: auto; padding: 6px 16px;">中止</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

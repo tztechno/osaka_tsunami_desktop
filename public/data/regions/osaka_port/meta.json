@@ -1,0 +1,24 @@
+{
+  "name": "osaka_port",
+  "label": "大阪港・市街地ベイエリア（詳細シミュレーション）",
+  "label_en": "Osaka Port & Bay Area (City Detail)",
+  "nx": 1600,
+  "ny": 1200,
+  "res": 10,
+  "crs": "EPSG:6674",
+  "originE": -60000,
+  "originN": -143000,
+  "center": {
+    "lat": 34.656,
+    "lon": 135.432
+  },
+  "widthM": 16000,
+  "heightM": 12000,
+  "groundMin": -14.999399651839667,
+  "groundMax": 88.96482727381898,
+  "aerial": {
+    "width": 1600,
+    "height": 1200
+  },
+  "built": "2026-10-21T08:42:23.392Z"
+}

@@ -1,0 +1,119 @@
+[
+  {
+    "name": "夢洲 (万博会場)",
+    "name_en": "Yumeshima (Expo 2025)",
+    "lon": 135.395,
+    "lat": 34.65,
+    "height": 10,
+    "x": 4541.7,
+    "z": 6596.4
+  },
+  {
+    "name": "舞洲",
+    "name_en": "Maishima",
+    "lon": 135.395,
+    "lat": 34.665,
+    "height": 10,
+    "x": 4551.7,
+    "z": 4932.5
+  },
+  {
+    "name": "咲洲コスモタワー",
+    "name_en": "Sakishima Cosmo Tower",
+    "lon": 135.415,
+    "lat": 34.638,
+    "height": 256,
+    "x": 6367.3,
+    "z": 7938.3
+  },
+  {
+    "name": "天保山・海遊館 (大阪港)",
+    "name_en": "Tempozan & Kaiyukan",
+    "lon": 135.432,
+    "lat": 34.656,
+    "height": 35,
+    "x": 7937.2,
+    "z": 5950.6
+  },
+  {
+    "name": "安治川水門",
+    "name_en": "Ajigawa Sluice Gate",
+    "lon": 135.474,
+    "lat": 34.68,
+    "height": 25,
+    "x": 11800.8,
+    "z": 3309.3
+  },
+  {
+    "name": "尻無川水門",
+    "name_en": "Shirinashigawa Sluice Gate",
+    "lon": 135.477,
+    "lat": 34.665,
+    "height": 25,
+    "x": 12067.1,
+    "z": 4974.6
+  },
+  {
+    "name": "木津川水門",
+    "name_en": "Kizugawa Sluice Gate",
+    "lon": 135.49,
+    "lat": 34.655,
+    "height": 25,
+    "x": 13252.9,
+    "z": 6089.9
+  },
+  {
+    "name": "京セラドーム大阪",
+    "name_en": "Kyocera Dome Osaka",
+    "lon": 135.476,
+    "lat": 34.669,
+    "height": 50,
+    "x": 11977.7,
+    "z": 4530.4
+  },
+  {
+    "name": "JR大阪駅・梅田",
+    "name_en": "Osaka Station / Umeda",
+    "lon": 135.498,
+    "lat": 34.702,
+    "height": 150,
+    "x": 14012.2,
+    "z": 880.2
+  },
+  {
+    "name": "難波・道頓堀",
+    "name_en": "Namba / Dotonbori",
+    "lon": 135.501,
+    "lat": 34.666,
+    "height": 50,
+    "x": 14267.2,
+    "z": 4874.8
+  },
+  {
+    "name": "通天閣",
+    "name_en": "Tsutenkaku Tower",
+    "lon": 135.506,
+    "lat": 34.652,
+    "height": 108,
+    "x": 14717.9,
+    "z": 6430
+  },
+  {
+    "name": "中之島",
+    "name_en": "Nakanoshima",
+    "lon": 135.495,
+    "lat": 34.693,
+    "height": 80,
+    "x": 13732.4,
+    "z": 1877.1
+  },
+  {
+    "name": "USJ (ユニバーサル・スタジオ)",
+    "name_en": "Universal Studios Japan",
+    "lon": 135.432,
+    "lat": 34.665,
+    "height": 30,
+    "x": 7942.8,
+    "z": 4952.3
+  }
+]
