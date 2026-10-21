@@ -238,36 +238,6 @@ export class TsunamiSimulator {
     }
   }
 
-  injectPulseWave({ worldX, worldZ, height = 4.0, radius = 250, directionDeg = null }) {
-    const { nx, ny, res, ground } = this;
-    const cx = Math.floor(worldX / res);
-    const cz = Math.floor(worldZ / res);
-    const rCells = Math.ceil(radius / res);
-
-    const x0 = Math.max(1, cx - rCells);
-    const x1 = Math.min(nx - 2, cx + rCells);
-    const z0 = Math.max(1, cz - rCells);
-    const z1 = Math.min(ny - 2, cz + rCells);
-
-    for (let z = z0; z <= z1; z++) {
-      for (let x = x0; x <= x1; x++) {
-        const idx = z * nx + x;
-        if (this.isLand(idx)) continue;
-        const dist = Math.hypot((x - cx) * res, (z - cz) * res);
-        if (dist > radius) continue;
-
-        const pulse = height * Math.cos((dist / radius) * (Math.PI * 0.5));
-        if (pulse <= 0) continue;
-
-        this.eta[idx] += pulse;
-        this.depth[idx] = Math.max(0, this.eta[idx] - ground[idx]);
-        if (this.depth[idx] > this.maxDepth[idx]) {
-          this.maxDepth[idx] = this.depth[idx];
-        }
-      }
-    }
-  }
-
   reset() {
     this.simTimeSec = this.startTimeSec;
     this.history = [];

@@ -488,3 +488,33 @@ input[type="range"]::-webkit-slider-thumb {
   background: linear-gradient(90deg, #0288d1, #00e5ff);
   transition: width 0.1s linear;
 }
+
+/* Address search */
+.address-row {
+  display: flex;
+  gap: 6px;
+}
+
+.address-row button {
+  width: auto;
+  flex: none;
+}
+
+.address-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.address-results button {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.address-results .address-msg {
+  font-size: 11px;
+  color: var(--text-dim);
+}

@@ -9,6 +9,7 @@ import { WaveProfile } from './waveProfile.js';
 import { I18N } from './i18n.js';
 import { recordVideo } from './recorder.js';
 import { Timeline } from './timeline.js';
+import { searchPlaces } from './geocode.js';
 
 let currentLang = 'ja';
 let scene = null;
@@ -32,8 +33,7 @@ let playT = 0; // simulated time being shown
 let lastShownT = -1;
 let lastTick = performance.now();
 let playSpeed = 60; // simulated seconds per real second
-let pin = null; // { vertex, elevation }
-let pulseMode = false;
+let pin = null; // { vertex, elevation } or, for a town area, { vertices, ha }
 let recordAbortController = null;
 
 async function init() {
@@ -159,12 +159,60 @@ function applyDisplay(m) {
   scene.updateFrame(m);
   if (m.stats) updateHud(m.stats, m.simTimeSec || 0);
   if (pin && timeline.frames.length) {
-    const series = timeline.seriesAt(pin.vertex, m.simTimeSec);
+    const series = pin.vertices ? timeline.seriesMaxAt(pin.vertices, m.simTimeSec) : timeline.seriesAt(pin.vertex, m.simTimeSec);
     const cur = series.length ? series[series.length - 1].depth : 0;
-    chart.setPoint({ gx: pin.vertex, gz: 0, elevation: pin.elevation, waterDepth: cur, maxDepth: Math.max(0, ...series.map((p) => p.depth)) });
+    const max = Math.max(0, ...series.map((p) => p.depth));
+    const label = pin.vertices ? `範囲 ${pin.ha} ha | 範囲内(陸地)の最大水深: ${cur.toFixed(2)}m (最大: ${max.toFixed(2)}m)` : null;
+    chart.setPoint({ gx: pin.vertex ?? pin.vertices[0], gz: 0, elevation: pin.elevation ?? 0, waterDepth: cur, maxDepth: max, label });
     chart.history = series.map((p) => ({ timeSec: p.timeSec - timeline.start, depth: p.depth }));
     chart.draw();
   }
+}
+
+/** Observation pin at region-local (worldX, worldZ): marker plus the hydrograph of that cell. */
+function placePin(worldX, worldZ) {
+  scene.setArea(null);
+  scene.setPin(worldX, worldZ);
+  const { res } = meta;
+  const vi = Math.min(timeline.wnx - 1, Math.floor(worldX / res / RENDER_STEP));
+  const vj = Math.min(timeline.wny - 1, Math.floor(worldZ / res / RENDER_STEP));
+  pin = { vertex: vj * timeline.wnx + vi, elevation: scene.getGroundAt(worldX, worldZ) };
+  if (timeline.frames.length) showAt(playT);
+}
+
+/** Town-level address: outline the town and chart the deepest water on land inside it. */
+function placeArea(area) {
+  scene.clearPin();
+  scene.setArea(area.rings);
+  const { res } = meta;
+  const { wnx, wny } = timeline;
+  const cell = RENDER_STEP * res;
+  const vertices = [];
+  // even-odd scanline over all rings (separate parts and holes) at the render-grid vertex centres
+  for (let j = 0; j < wny; j++) {
+    const zc = (j * RENDER_STEP + 0.5) * res;
+    if (zc < area.bbox[1] || zc > area.bbox[3]) continue;
+    const xs = [];
+    for (const r of area.rings) {
+      const n = r.length / 2;
+      for (let i = 0, k = n - 1; i < n; k = i++) {
+        const z1 = r[k * 2 + 1], z2 = r[i * 2 + 1];
+        if ((z1 <= zc && z2 > zc) || (z2 <= zc && z1 > zc)) xs.push(r[k * 2] + ((zc - z1) / (z2 - z1)) * (r[i * 2] - r[k * 2]));
+      }
+    }
+    xs.sort((a, b) => a - b);
+    for (let q = 0; q + 1 < xs.length; q += 2) {
+      const i0 = Math.max(0, Math.ceil((xs[q] - 0.5 * res) / cell)), i1 = Math.min(wnx - 1, Math.floor((xs[q + 1] - 0.5 * res) / cell));
+      for (let i = i0; i <= i1; i++) {
+        // land only: rivers and canals inside the town would otherwise read as "flooded" from the start
+        if (scene.waterMask?.[j * RENDER_STEP * meta.nx + i * RENDER_STEP] === 1) continue;
+        vertices.push(j * wnx + i);
+      }
+    }
+  }
+  if (!vertices.length) return;
+  pin = { vertices, ha: (area.m2 / 1e4).toFixed(1) };
+  if (timeline.frames.length) showAt(playT);
 }
 
 function updateHud(stats, simTimeSec) {
@@ -365,12 +413,6 @@ function setupEventListeners(canvas) {
   sliderCustomPeriod.addEventListener('input', updateCustomWave);
   sliderCustomDir.addEventListener('input', updateCustomWave);
 
-  // Pulse mode checkbox
-  const chkPulse = document.getElementById('chk-pulse-mode');
-  chkPulse.addEventListener('change', (e) => {
-    pulseMode = e.target.checked;
-  });
-
   // Label display toggle
   document.getElementById('chk-exaggerate').addEventListener('change', (e) => {
     scene.waterExaggeration = e.target.checked ? 5 : 1;
@@ -422,7 +464,7 @@ function setupEventListeners(canvas) {
     if (recordAbortController) recordAbortController.abort();
   });
 
-  // Point observation click & pulse click. A drag (orbit / pan) is not a click; a double-click
+  // Point observation click. A drag (orbit / pan) is not a click; a double-click
   // re-centres the view, so the single-click action waits until a second click is ruled out.
   const pick = (e) => {
     const rect = canvas.getBoundingClientRect();
@@ -440,19 +482,7 @@ function setupEventListeners(canvas) {
       const worldX = p.x + meta.widthM / 2;
       const worldZ = p.z + meta.heightM / 2;
       if (worldX < 0 || worldZ < 0 || worldX >= meta.widthM || worldZ >= meta.heightM) return; // backdrop
-      if (pulseMode) {
-        // a pulse changes the initial state: recompute from the start with it
-        invalidateTimeline();
-        simClient.reset();
-        simClient.injectWave({ worldX, worldZ, height: 4.5, radius: 250 });
-      } else {
-        scene.setPin(worldX, worldZ);
-        const { res } = meta;
-        const vi = Math.min(timeline.wnx - 1, Math.floor(worldX / res / RENDER_STEP));
-        const vj = Math.min(timeline.wny - 1, Math.floor(worldZ / res / RENDER_STEP));
-        pin = { vertex: vj * timeline.wnx + vi, elevation: scene.getGroundAt(worldX, worldZ) };
-        if (timeline.frames.length) showAt(playT);
-      }
+      placePin(worldX, worldZ);
     }, 250);
   });
   canvas.addEventListener('dblclick', (e) => {
@@ -469,9 +499,49 @@ function setupEventListeners(canvas) {
     if (scene.outerMesh) scene.outerMesh.visible = e.target.checked;
   });
 
+  // Address / place search: pick a candidate to drop the pin there and fly to it
+  const addrResults = document.getElementById('address-results');
+  const addrMsg = (text) => { addrResults.innerHTML = ''; const p = document.createElement('div'); p.className = 'address-msg'; p.textContent = text; addrResults.appendChild(p); };
+  document.getElementById('form-address').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = document.getElementById('input-address').value.trim();
+    if (!q) return;
+    const dict = I18N[currentLang];
+    addrMsg(dict.addressSearching);
+    let hits;
+    try {
+      hits = await searchPlaces(q, meta, labelMgr?.labels);
+    } catch (err) {
+      addrMsg(dict.addressFailed);
+      return;
+    }
+    if (!hits.length) { addrMsg(dict.addressNone); return; }
+    addrResults.innerHTML = '';
+    for (const h of hits) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const kind = h.kind === 'area' ? (currentLang === 'en' ? ' (area)' : '（範囲）') : '';
+      btn.textContent = `${h.source === 'label' ? '★ ' : ''}${currentLang === 'en' ? h.title_en : h.title}${kind}`;
+      btn.addEventListener('click', () => {
+        let x = h.worldX, z = h.worldZ, dist = 1500;
+        if (h.kind === 'area') {
+          const [x0, z0, x1, z1] = h.area.bbox;
+          x = (x0 + x1) / 2; z = (z0 + z1) / 2;
+          dist = Math.max(1500, Math.max(x1 - x0, z1 - z0) * 1.6);
+          placeArea(h.area);
+        } else {
+          placePin(x, z);
+        }
+        scene.flyTo(new THREE.Vector3(x - meta.widthM / 2, scene.getGroundAt(x, z), z - meta.heightM / 2), dist);
+      });
+      addrResults.appendChild(btn);
+    }
+  });
+
   // Clear pin
   document.getElementById('btn-clear-pin').addEventListener('click', () => {
     scene.clearPin();
+    scene.setArea(null);
     pin = null;
     chart.setPoint(null);
     chart.draw();
@@ -525,6 +595,10 @@ function updateLanguageUI() {
   document.getElementById('txt-chk-backdrop').textContent = dict.backdrop;
   document.getElementById('txt-sec-camera').textContent = dict.camera;
   document.getElementById('txt-controls-hint').textContent = dict.controlsHint;
+  document.getElementById('txt-sec-address').textContent = dict.address;
+  document.getElementById('input-address').placeholder = dict.addressPlaceholder;
+  document.getElementById('btn-address-search').textContent = dict.addressSearch;
+  document.getElementById('txt-address-hint').textContent = dict.addressHint;
   for (const [view, label] of Object.entries(dict.views)) {
     document.getElementById(`btn-view-${view}`).textContent = label;
   }

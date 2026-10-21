@@ -89,10 +89,6 @@ export class SimClient {
     this.worker.postMessage({ type: 'waveProfile', profile: serialized });
   }
 
-  injectWave(params) {
-    this.worker.postMessage({ type: 'injectWave', params });
-  }
-
   setCustomWave(params) {
     this.worker.postMessage({ type: 'customWave', params });
   }

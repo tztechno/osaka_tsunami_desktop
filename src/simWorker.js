@@ -194,10 +194,6 @@ self.onmessage = (e) => {
       sim.setWaveProfile(WaveProfile.deserialize(m.profile));
       post(null, true);
       break;
-    case 'injectWave':
-      sim.injectPulseWave(m.params);
-      post(null, true);
-      break;
     case 'customWave':
       sim.setCustomWave(m.params);
       break;

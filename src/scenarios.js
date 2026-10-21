@@ -74,8 +74,8 @@ export const TSUNAMI_SCENARIOS = {
     durationMin: 45,
     hasPreDrawdown: false,
     eqTimeOffsetSec: 0,
-    description: 'スライダーで波高（1m〜15m）、周期、来襲方向を自由に変更してシミュレーションを実行可能。また「水面クリックで人工波を発生」モードで任意の海面をクリックして波頭を伝播させることができます。',
-    description_en: 'Freely adjust wave height (1-15m), period, and incoming bearing. Enable "Click Water to Generate Pulse" mode to trigger artificial waves from any location on the sea surface.',
+    description: 'スライダーで沖合波高（1m〜30m）、周期、来襲方向を自由に変更してシミュレーションを実行できます。',
+    description_en: 'Freely adjust offshore wave height (1-30m), period, and incoming bearing.',
     recommendedSeawall: 'sluice_closed',
   },
 };

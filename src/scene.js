@@ -5,8 +5,6 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 const C_SEA_DEEP = new THREE.Color('#0a3150');
 const C_SEA_RISE = new THREE.Color('#2f8fa6');
 const C_SEA_LOW = new THREE.Color('#061c2e');
-const C_FLOOD = new THREE.Color('#8c7a5a'); // Muddy overland flood water
-const C_FLOOD_DEEP = new THREE.Color('#4f4636');
 const C_FOAM = new THREE.Color('#f2f6f5');
 
 export const DEPTH_LEGEND = [
@@ -19,6 +17,9 @@ export const DEPTH_LEGEND = [
   { max: 20.0, color: '#f285c9', label: '10〜20m' },
   { max: Infinity, color: '#dc7adc', label: '20m〜' },
 ];
+// Overland water is drawn in the legend colours (same as the bottom-left legend)
+const DEPTH_COLORS = DEPTH_LEGEND.map((l) => ({ max: l.max, color: new THREE.Color(l.color) }));
+const C_DRY = DEPTH_COLORS[0].color;
 
 /**
  * Indexed grid mesh in the XZ plane: vertex (i, j) at (xAt(i), heightAt(k), zAt(j)), k = j * nx + i,
@@ -87,9 +88,9 @@ export class TsunamiScene {
     this.waterMesh = null;
     this.buildingsMesh = null;
     this.pinMesh = null;
+    this.areaGroup = null;
     this.sourceZoneGroup = null;
 
-    this.showHazardColors = false;
     this.showMaxDepth = false;
     // Display-only vertical exaggeration of the open-water level (sea / rivers), so metre-scale
     // tsunami waves are visible across the 16 km bay; land inundation is drawn at true depth
@@ -525,9 +526,9 @@ export class TsunamiScene {
         if (d < 0.05) {
           // Hide vertex safely 2m beneath local ground elevation!
           pos[vertY] = zb - 2.0;
-          col[colIdx] = C_FLOOD.r;
-          col[colIdx + 1] = C_FLOOD.g;
-          col[colIdx + 2] = C_FLOOD.b;
+          col[colIdx] = C_DRY.r;
+          col[colIdx + 1] = C_DRY.g;
+          col[colIdx + 2] = C_DRY.b;
           continue;
         }
 
@@ -536,12 +537,8 @@ export class TsunamiScene {
         pos[vertY] = openWater ? eta[idx] * this.waterExaggeration : eta[idx];
 
         const onLand = this.waterMask ? this.waterMask[groundIdx] === 0 : zb >= 0;
-        if (this.showHazardColors && onLand) {
-          const matched = DEPTH_LEGEND.find(l => d < l.max);
-          c.set(matched ? matched.color : '#dc7adc');
-        } else if (onLand) {
-          // Muddy overland flood water
-          c.lerpColors(C_FLOOD, C_FLOOD_DEEP, Math.min(1.0, d / 5.0));
+        if (onLand) {
+          c.copy(DEPTH_COLORS.find((l) => d < l.max).color);
         } else {
           // Ocean water: deep blue to bright cyan-blue on surge
           const anomaly = eta[idx];
@@ -553,8 +550,8 @@ export class TsunamiScene {
           }
         }
 
-        // Foam / turbulent bore highlight
-        const f = (foam[idx] || 0) / 255;
+        // Foam / turbulent bore highlight, on open water only so land keeps the legend colours
+        const f = onLand ? 0 : (foam[idx] || 0) / 255;
         if (f > 0.15) {
           c.lerp(C_FOAM, Math.min(1.0, f * 1.2));
         }
@@ -607,10 +604,6 @@ export class TsunamiScene {
     }
   }
 
-  setHazardColors(enabled) {
-    this.showHazardColors = enabled;
-  }
-
   setMaxDepthView(enabled) {
     this.showMaxDepth = enabled;
   }
@@ -634,6 +627,47 @@ export class TsunamiScene {
 
   clearPin() {
     if (this.pinMesh) this.pinMesh.visible = false;
+  }
+
+  /**
+   * Outline of a town-level address: a translucent curtain (wallH m tall) standing on the ground along each
+   * ring, readable from far away. rings: [[worldX, worldZ, ...], ...] in region-local metres; null clears it.
+   */
+  setArea(rings, wallH = 25) {
+    if (this.areaGroup) {
+      this.areaGroup.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
+      this.scene.remove(this.areaGroup);
+      this.areaGroup = null;
+    }
+    if (!rings) return;
+    const group = new THREE.Group();
+    const wallMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x00e5ff });
+    for (const r of rings) {
+      const pts = [];
+      const n = r.length / 2;
+      for (let i = 0; i < n; i++) {
+        const x0 = r[i * 2] - this.W / 2, z0 = r[i * 2 + 1] - this.H / 2;
+        const x1 = r[((i + 1) % n) * 2] - this.W / 2, z1 = r[((i + 1) % n) * 2 + 1] - this.H / 2;
+        const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 10)); // densified to ~10 m
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps, x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t;
+          pts.push(new THREE.Vector3(x, this.surfaceAt(x, z), z));
+        }
+      }
+      pts.push(pts[0].clone());
+      const pos = new Float32Array(pts.length * 6);
+      pts.forEach((p, k) => pos.set([p.x, p.y, p.z, p.x, p.y + wallH, p.z], k * 6));
+      const idx = [];
+      for (let k = 0; k + 1 < pts.length; k++) idx.push(k * 2, k * 2 + 1, k * 2 + 2, k * 2 + 1, k * 2 + 3, k * 2 + 2);
+      const wall = new THREE.BufferGeometry();
+      wall.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      wall.setIndex(idx);
+      group.add(new THREE.Mesh(wall, wallMat));
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map((p) => p.clone().setY(p.y + wallH))), lineMat));
+    }
+    this.areaGroup = group;
+    this.scene.add(group);
   }
 
   getGroundAt(worldX, worldZ) {

@@ -43,7 +43,8 @@ export class DepthChart {
     ctx.fillStyle = '#00e5ff';
     ctx.font = 'bold 11px Inter, sans-serif';
     ctx.fillText(
-      `標高: ${this.pointInfo.elevation.toFixed(1)}m | 水深: ${this.pointInfo.waterDepth.toFixed(2)}m (最大: ${this.pointInfo.maxDepth.toFixed(2)}m)`,
+      this.pointInfo.label ||
+        `標高: ${this.pointInfo.elevation.toFixed(1)}m | 水深: ${this.pointInfo.waterDepth.toFixed(2)}m (最大: ${this.pointInfo.maxDepth.toFixed(2)}m)`,
       10,
       16
     );

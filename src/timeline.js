@@ -81,6 +81,18 @@ export class Timeline {
   }
 
   /** Water depth over time at a render vertex, up to time t. */
+  /** Deepest water among several vertices (a town area), per keyframe up to t. */
+  seriesMaxAt(vertices, t) {
+    const out = [];
+    for (const k of this.frames) {
+      if (k.t > t) break;
+      let d = 0;
+      for (const v of vertices) d = Math.max(d, k.eta[v] * 0.01 - this.ground[v]);
+      out.push({ timeSec: k.t, depth: d });
+    }
+    return out;
+  }
+
   seriesAt(vertex, t) {
     const out = [];
     for (const k of this.frames) {
