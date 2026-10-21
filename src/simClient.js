@@ -99,6 +99,10 @@ export class SimClient {
     this.worker.postMessage({ type: 'play' });
   }
 
+  setSpeed(speed) {
+    this.worker.postMessage({ type: 'speed', speed });
+  }
+
   pause() {
     this.worker.postMessage({ type: 'pause' });
   }

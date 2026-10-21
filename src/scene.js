@@ -541,10 +541,11 @@ export class TsunamiScene {
         } else {
           // Ocean water: deep blue to bright cyan-blue on surge
           const anomaly = eta[idx];
+          // saturate at +2 m / -1.5 m so that metre-scale waves in the bay are clearly visible
           if (anomaly >= 0) {
-            c.lerpColors(C_SEA_DEEP, C_SEA_RISE, Math.min(1.0, anomaly / 5.0));
+            c.lerpColors(C_SEA_DEEP, C_SEA_RISE, Math.min(1.0, anomaly / 2.0));
           } else {
-            c.lerpColors(C_SEA_DEEP, C_SEA_LOW, Math.min(1.0, -anomaly / 3.0));
+            c.lerpColors(C_SEA_DEEP, C_SEA_LOW, Math.min(1.0, -anomaly / 1.5));
           }
         }
 

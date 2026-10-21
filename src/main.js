@@ -17,6 +17,10 @@ let chart = null;
 let labelMgr = null;
 let meta = null;
 let activeScenario = TSUNAMI_SCENARIOS.nankai_osaka_trimmed;
+// CSV wave source in use (null for parametric waves): the run starts at its lead-in time and the
+// clock shows time since that start, plus time since the earthquake from the CSV's offset
+let activeProfile = null;
+let profileStartSec = 0;
 let isPlaying = false;
 let pulseMode = false;
 let recordAbortController = null;
@@ -120,11 +124,17 @@ function handleSimFrame(m) {
   const stats = m.stats;
   if (!stats) return;
 
-  // Format time
-  const totalSec = Math.floor(m.simTimeSec || 0);
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  document.getElementById('hud-sim-time').textContent = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  // Time since the run started, and time since the earthquake for CSV sources
+  const elapsed = Math.max(0, Math.floor((m.simTimeSec || 0) - profileStartSec));
+  document.getElementById('hud-sim-time').textContent = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+  const eqEl = document.getElementById('hud-eq-time');
+  if (activeProfile) {
+    const eq = Math.floor((m.simTimeSec || 0) + activeProfile.timeOffset);
+    const hms = `${Math.floor(eq / 3600)}:${String(Math.floor((eq % 3600) / 60)).padStart(2, '0')}:${String(eq % 60).padStart(2, '0')}`;
+    eqEl.textContent = currentLang === 'en' ? `EQ +${hms}` : `地震後 ${hms}`;
+  } else {
+    eqEl.textContent = '';
+  }
 
   document.getElementById('hud-offshore-wave').textContent = stats.offshoreWaveHeight.toFixed(1);
   document.getElementById('hud-runup').textContent = stats.maxRunup.toFixed(1);
@@ -151,6 +161,11 @@ function handleSimFrame(m) {
   }
 }
 
+function setActiveProfile(profile) {
+  activeProfile = profile;
+  profileStartSec = profile ? profile.leadInSec() : 0;
+}
+
 async function loadScenario(sc) {
   activeScenario = sc;
   document.getElementById('scenario-desc').textContent = currentLang === 'en' ? sc.description_en : sc.description;
@@ -159,13 +174,16 @@ async function loadScenario(sc) {
     try {
       const csvText = await (await fetch(sc.csvUrl)).text();
       const profile = WaveProfile.parse(csvText, sc.name);
+      setActiveProfile(profile);
       simClient.setWaveProfile(profile);
       showCsvInfo(profile);
     } catch (e) {
       console.warn('Failed to load preset CSV:', e);
+      setActiveProfile(null);
       simClient.setScenario(sc);
     }
   } else {
+    setActiveProfile(null);
     simClient.setScenario(sc);
     hideCsvInfo();
   }
@@ -178,7 +196,12 @@ async function loadScenario(sc) {
 function showCsvInfo(profile) {
   const el = document.getElementById('csv-info');
   el.style.display = 'block';
-  el.textContent = `✓ ${profile.name} (最大波高 ${profile.peakHeight.toFixed(2)}m, 継続 ${(profile.durationSec / 60).toFixed(0)}分)`;
+  const fmt = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`;
+  const lead = profile.leadInSec();
+  const startInfo = currentLang === 'en'
+    ? `starts at ${(lead / 60).toFixed(0)} min of the CSV (EQ +${fmt(lead + profile.timeOffset)}), skipping the quiet lead-in`
+    : `CSVの ${(lead / 60).toFixed(0)}分目（地震後 ${fmt(lead + profile.timeOffset)}）から計算・静穏な導入部を省略`;
+  el.textContent = `✓ ${profile.name} (最大波高 ${profile.peakHeight.toFixed(2)}m, 継続 ${(profile.durationSec / 60).toFixed(0)}分) — ${startInfo}`;
 }
 
 function hideCsvInfo() {
@@ -250,6 +273,7 @@ function setupEventListeners(canvas) {
     document.getElementById('val-custom-period').textContent = `${sliderCustomPeriod.value}分`;
     document.getElementById('val-custom-dir').textContent = `${direction}°`;
 
+    setActiveProfile(null);
     simClient.setCustomWave({ height, period, direction });
   };
 
@@ -268,6 +292,7 @@ function setupEventListeners(canvas) {
   sliderSpeed.addEventListener('input', (e) => {
     const spd = parseFloat(e.target.value);
     document.getElementById('val-sim-speed').textContent = `${spd.toFixed(1)}x`;
+    simClient.setSpeed(spd);
   });
 
   // Label display toggle
@@ -385,6 +410,7 @@ function handleCsvFile(file) {
     try {
       const text = e.target.result;
       const profile = WaveProfile.parse(text, file.name);
+      setActiveProfile(profile);
       simClient.setWaveProfile(profile);
       showCsvInfo(profile);
       document.getElementById('select-scenario').value = 'custom';

@@ -311,6 +311,12 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--accent-cyan);
 }
 
+.meter-sub {
+  font-size: 10px;
+  color: var(--accent-amber);
+  font-variant-numeric: tabular-nums;
+}
+
 .meter-label {
   font-size: 10px;
   color: var(--text-dim);

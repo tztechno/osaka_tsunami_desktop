@@ -6,7 +6,7 @@
 import { TsunamiSimulator } from './tsunamiSim.js';
 import { WaveProfile } from './waveProfile.js';
 
-const FRAME_BUDGET_MS = 30; // wall time spent stepping between posted frames
+const FRAME_BUDGET_MS = 30; // wall time spent stepping between posted frames at speed 1x
 const MAX_POOL = 3;
 
 let sim = null;
@@ -15,6 +15,7 @@ let step = 2;
 let wnx = 0;
 let wny = 0;
 let playing = false;
+let speed = 1; // UI speed slider: longer stepping between frames = more simulated time per second
 let point = null;
 const pool = [];
 let allocated = 0;
@@ -111,7 +112,7 @@ function tick() {
   const t0 = performance.now();
   do {
     sim.step(sim.stableDt());
-  } while (performance.now() - t0 < FRAME_BUDGET_MS);
+  } while (performance.now() - t0 < FRAME_BUDGET_MS * speed);
   post(null);
   setTimeout(tick, 0);
 }
@@ -175,6 +176,9 @@ self.onmessage = (e) => {
       break;
     case 'pause':
       playing = false;
+      break;
+    case 'speed':
+      speed = m.speed;
       break;
     case 'point':
       point = m.point;

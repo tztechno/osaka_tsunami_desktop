@@ -6,6 +6,9 @@
  *   Time_sec, Elevation_m, U_velocity_m_s, V_velocity_m_s, Speed_m_s, Direction_deg, ...
  */
 
+const LEAD_IN_FRACTION = 0.5;
+const LEAD_IN_MARGIN_SEC = 300;
+
 export class WaveProfile {
   constructor({
     name = 'Custom Wave Source',
@@ -70,6 +73,19 @@ export class WaveProfile {
   /**
    * Evaluates the offshore water level eta (m) at time t (seconds) using linear interpolation.
    */
+  /**
+   * Where to start the simulation in this profile: LEAD_IN_MARGIN_SEC before the water level first
+   * reaches LEAD_IN_FRACTION of the peak. nankai_trough's trimmed CSVs start at the first 0.1 m
+   * arrival, which in Osaka Bay is followed by more than an hour of slow sub-metre oscillation.
+   */
+  leadInSec() {
+    const threshold = Math.abs(this.peakHeight) * LEAD_IN_FRACTION;
+    for (let i = 0; i < this.count; i++) {
+      if (Math.abs(this.elevations[i]) >= threshold) return Math.max(this.tMin, this.times[i] - LEAD_IN_MARGIN_SEC);
+    }
+    return this.tMin;
+  }
+
   getEta(t) {
     const { times, elevations, count, tMin, tMax } = this;
     if (count === 0) return 0.0;

@@ -65,6 +65,7 @@ export class TsunamiSimulator {
 
     // Initial state: sea cells have eta = 0.0 (sea level), land cells depth = 0
     this.waveDirectionDeg = 235; // needed by setupBoundary() inside initWater()
+    this.startTimeSec = 0; // simulation clock at reset (CSV sources skip their quiet lead-in)
     this.initWater();
 
     // Time & Controls
@@ -202,6 +203,7 @@ export class TsunamiSimulator {
 
   setScenario(scenario) {
     this.waveProfile = scenario.waveProfile || null;
+    this.startTimeSec = this.waveProfile ? this.waveProfile.leadInSec() : 0;
     this.waveHeight = scenario.waveHeight;
     this.wavePeriod = scenario.periodSec || scenario.wavePeriod || 1800;
     this.waveDirectionDeg = scenario.directionDeg !== undefined ? scenario.directionDeg : 235;
@@ -212,6 +214,7 @@ export class TsunamiSimulator {
 
   setWaveProfile(profile) {
     this.waveProfile = profile;
+    this.startTimeSec = profile ? profile.leadInSec() : 0; // skip the quiet lead-in of CSV sources
     if (profile) {
       this.waveHeight = profile.peakHeight;
       this.waveDirectionDeg = profile.dominantDirectionDeg != null ? profile.dominantDirectionDeg : 235;
@@ -226,6 +229,7 @@ export class TsunamiSimulator {
 
   setCustomWave({ height, period, direction }) {
     this.waveProfile = null;
+    this.startTimeSec = 0;
     if (height !== undefined) this.waveHeight = height;
     if (period !== undefined) this.wavePeriod = period;
     if (direction !== undefined) {
@@ -265,9 +269,9 @@ export class TsunamiSimulator {
   }
 
   reset() {
-    this.simTimeSec = 0;
+    this.simTimeSec = this.startTimeSec;
     this.history = [];
-    this.lastLogSec = -100;
+    this.lastLogSec = this.startTimeSec - 100;
     this.initWater();
     this.updateStats();
   }
