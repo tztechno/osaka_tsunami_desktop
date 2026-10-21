@@ -182,18 +182,6 @@ function updateHud(stats, simTimeSec) {
   document.getElementById('hud-runup').textContent = stats.maxRunup.toFixed(1);
   document.getElementById('hud-area').textContent = stats.inundatedAreaHa.toFixed(1);
   document.getElementById('hud-bldgs').textContent = stats.inundatedBuildings.toLocaleString();
-
-  const overtopEl = document.getElementById('hud-overtop');
-  const overtopTag = document.getElementById('hud-overtop-tag');
-  if (stats.isOvertopping) {
-    overtopEl.textContent = 'OVERTOP';
-    overtopEl.style.color = '#ff5252';
-    overtopTag.textContent = `${stats.overtoppingCount}箇所越流`;
-  } else {
-    overtopEl.textContent = 'SAFE';
-    overtopEl.style.color = '#10b981';
-    overtopTag.textContent = seawallMgr.activePreset === 'sluice_open' ? '水門全開' : '防護中';
-  }
 }
 
 /** Simulated span of a run: the whole CSV after its lead-in, or the scenario's duration. */
@@ -570,7 +558,6 @@ function drawVideoOverlay(ctx, w, h) {
     [en ? 'Max run-up' : '最大遡上高', `${s.maxRunup.toFixed(1)} m`],
     [en ? 'Inundated area' : '浸水面積', `${s.inundatedAreaHa.toFixed(1)} ha`],
     [en ? 'Flooded buildings' : '浸水建物', `${s.inundatedBuildings.toLocaleString()}`],
-    [en ? 'Seawalls' : '水門・堤防', s.isOvertopping ? (en ? 'OVERTOPPING' : '越流発生') : (en ? 'holding' : '防護中')],
   ];
   const pad = 14, lh = 24, bw = 330, bh = pad * 2 + 22 + 18 + lines.length * lh + (scene.waterExaggeration > 1 ? 18 : 0);
   ctx.save();
@@ -587,7 +574,7 @@ function drawVideoOverlay(ctx, w, h) {
     ctx.fillStyle = '#b0bec5';
     ctx.font = '13px Inter, "Hiragino Sans", sans-serif';
     ctx.fillText(k, 16 + pad, y);
-    ctx.fillStyle = n === lines.length - 1 && s.isOvertopping ? '#ff5252' : '#ffffff';
+    ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 16px Inter, "Hiragino Sans", sans-serif';
     ctx.fillText(v, 16 + pad + 150, y);
   });
