@@ -514,7 +514,30 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 11px;
 }
 
+.address-results button.outside {
+  color: var(--text-dim);
+  border-style: dashed;
+}
+
 .address-results .address-msg {
   font-size: 11px;
   color: var(--text-dim);
+}
+
+/* 2 m detail tile */
+.tile-row {
+  display: flex;
+  gap: 6px;
+}
+
+.tile-row button {
+  width: auto;
+  flex: none;
+}
+
+.tile-status {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-main);
+  white-space: pre-line;
 }

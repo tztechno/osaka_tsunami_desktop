@@ -86,12 +86,7 @@ function fillFrame(f) {
   }
   if (dtPost > 0.5) prevTime = sim.simTimeSec;
 
-  const b = sim.buildings;
-  for (let k = 0; k < b.length; k++) {
-    const gx = Math.floor(b[k].x / res);
-    const gz = Math.floor(b[k].z / res);
-    f.bldgWet[k] = gx >= 0 && gx < nx && gz >= 0 && gz < ny && depth[gz * nx + gx] >= 0.5 ? 1 : 0;
-  }
+  for (let k = 0; k < sim.buildings.length; k++) f.bldgWet[k] = sim.buildingFlooded(k) ? 1 : 0;
 }
 
 function post(reqId, force = false) {
@@ -235,8 +230,8 @@ self.onmessage = (e) => {
         pool.push(m.frame);
       }
       break;
-    case 'csv':
-      self.postMessage({ type: 'csv', reqId: m.reqId, csv: sim.generateCsv() });
+    case 'history':
+      self.postMessage({ type: 'history', reqId: m.reqId, history: sim.history });
       break;
   }
 };

@@ -61,9 +61,14 @@ for (let m = 5; m <= +minutes; m += 5) {
 
 if (mapFile) {
   // aerial with maximum land inundation (yellow -> red, 0 -> 3 m) and wall cells (light blue)
-  const img = jpeg.decode(fs.readFileSync(path.join(dir, 'aerial.jpg')), { useTArray: true });
+  // one pixel per cell, the aerial resampled onto the grid (it is usually finer than the grid)
+  const aerial = jpeg.decode(fs.readFileSync(path.join(dir, 'aerial.jpg')), { useTArray: true });
+  const img = { data: new Uint8Array(nx * ny * 4) };
   for (let i = 0; i < sim.N; i++) {
     const o = i * 4;
+    const ax = Math.min(aerial.width - 1, Math.floor((((i % nx) + 0.5) / nx) * aerial.width));
+    const ay = Math.min(aerial.height - 1, Math.floor(((Math.floor(i / nx) + 0.5) / ny) * aerial.height));
+    img.data.set(aerial.data.subarray((ay * aerial.width + ax) * 4, (ay * aerial.width + ax) * 4 + 4), o);
     const md = sim.maxDepth[i];
     if (!waterMask[i] && md >= 0.05) {
       const t = Math.min(1, md / 3);

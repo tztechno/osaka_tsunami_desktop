@@ -145,6 +145,7 @@ export class SeawallManager {
       if (k >= nx) seed(k - nx);
       if (k < (ny - 1) * nx) seed(k + nx);
     }
+    this.outerWater = outer; // water seaward of the closed gates (the 2 m detail tile classifies its walls with it)
     for (let y = 0; y < ny; y++) {
       for (let x = 0; x < nx; x++) {
         const k = y * nx + x;

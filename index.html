@@ -112,6 +112,18 @@
         <div class="section-title">
           <span>⏱️</span> <span id="txt-sec-controls">シミュレーション操作</span>
         </div>
+        <div class="slider-group">
+          <div class="slider-label">
+            <span id="txt-label-duration">計算時間</span>
+          </div>
+          <select id="select-duration">
+            <option value="0" selected>シナリオの長さ（CSVは最後まで）</option>
+            <option value="60">1時間</option>
+            <option value="120">2時間</option>
+            <option value="180">3時間</option>
+            <option value="240">4時間</option>
+          </select>
+        </div>
         <div class="play-row">
           <button id="btn-play" class="btn-primary">▶ 計算・再生</button>
           <button id="btn-reset">⏮ 先頭へ</button>
@@ -189,6 +201,28 @@
         <p id="txt-address-hint" class="hint">番地まで入れるとピン、町名・丁目までなら範囲を枠で表示します。国土地理院の住所検索を使用（ネット接続が必要）、計算範囲内の候補のみ表示。</p>
       </section>
 
+      <!-- 2 m Detail Tile -->
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>🔍</span> <span id="txt-sec-tile">詳細タイル（2m・全建物）</span>
+        </div>
+        <div class="tile-row">
+          <select id="select-tile-size">
+            <option value="1000">1 km</option>
+            <option value="2000" selected>2 km</option>
+            <option value="3000">3 km</option>
+          </select>
+          <button id="btn-tile-build">ピン位置で作成</button>
+        </div>
+        <div class="tile-row">
+          <select id="select-tile"></select>
+          <button id="btn-tile-delete">削除</button>
+        </div>
+        <button id="btn-tile-run">▶ 詳細計算 (GPU)</button>
+        <div id="tile-status" class="tile-status"></div>
+        <p id="txt-tile-hint" class="hint">ピンや範囲を置いた場所に、1〜3km四方の2mタイルを作ります（地形・PLATEAU建物・航空写真をネットから取得）。「詳細計算」で、全域（15m）の水位をタイルの外周に与えて2mで計算します。全域の計算がまだなら自動で始め、両方を同時に進めます。</p>
+      </section>
+
       <!-- Export Buttons -->
       <section class="sidebar-section">
         <div class="section-title">
@@ -236,7 +270,10 @@
     <aside class="chart-panel glass-panel">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
         <span style="font-size: 11px; font-weight: 700; color: var(--accent-cyan);" id="txt-chart-title">地点観察ハイドログラフ</span>
-        <button id="btn-clear-pin" style="width: auto; padding: 2px 8px; font-size: 10px;">ピン解除</button>
+        <span style="display: flex; gap: 6px;">
+          <button id="btn-pin-csv" style="width: auto; padding: 2px 8px; font-size: 10px;">CSV</button>
+          <button id="btn-clear-pin" style="width: auto; padding: 2px 8px; font-size: 10px;">ピン解除</button>
+        </span>
       </div>
       <canvas id="depth-canvas" width="360" height="120"></canvas>
     </aside>

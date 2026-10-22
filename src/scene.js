@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { buildCastle } from './castle.js';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 
 // Water palette
 const C_SEA_DEEP = new THREE.Color('#0a3150');
@@ -88,12 +92,12 @@ export class TsunamiScene {
     this.waterMesh = null;
     this.buildingsMesh = null;
     this.pinMesh = null;
-    this.areaGroup = null;
+    this.areaLines = null;
     this.sourceZoneGroup = null;
 
     this.showMaxDepth = false;
     // Display-only vertical exaggeration of the open-water level (sea / rivers), so metre-scale
-    // tsunami waves are visible across the 16 km bay; land inundation is drawn at true depth
+    // tsunami waves are visible across the bay; land inundation is drawn at true depth
     this.waterExaggeration = 5;
     this.buildingFocus = { enabled: false, radius: 3000, x: 0, z: 0 };
     this.viewLocked = false;
@@ -195,12 +199,12 @@ export class TsunamiScene {
   setCameraView(type) {
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
     const views = {
-      overview: [V(-9000, 9000, 11000), V(500, 0, 0)],
-      port: [V(-4200, 1300, 3600), V(-1500, 0, 600)],
-      gates: [V(1500, 900, 2600), V(3300, 0, -700)],
-      city: [V(3500, 1100, 3500), V(5500, 0, -1500)],
-      region: [V(-25000, 26000, 32000), V(2000, 0, -2000)],
-      top: [V(0, 19000, 1), V(0, 0, 0)],
+      overview: [V(-14000, 14000, 17000), V(0, 0, 0)],
+      port: [V(-8200, 1300, 5800), V(-5500, 0, 2800)],
+      gates: [V(-2500, 900, 4800), V(-700, 0, 1500)],
+      city: [V(-500, 1100, 5700), V(1500, 0, 700)],
+      region: [V(-29000, 30000, 36000), V(-2000, 0, 0)],
+      top: [V(0, 30000, 1), V(0, 0, 0)],
     };
     const v = views[type];
     if (v) this.animateCameraTo(v[0], v[1]);
@@ -378,11 +382,8 @@ export class TsunamiScene {
     // Anchor box bottom at y = 0
     geom.translate(0, 0.5, 0);
 
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xcccccc,
-      roughness: 0.6,
-      metalness: 0.2,
-    });
+    // matte, lit by the sun: walls facing different ways get different shades and roofs are the brightest
+    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
 
     const mesh = new THREE.InstancedMesh(geom, mat, count);
     mesh.castShadow = true;
@@ -392,7 +393,8 @@ export class TsunamiScene {
     const { originE, originN, res, nx, ny, widthM, heightM } = this.meta;
 
     this.bldgPositions = [];
-    this.bldgColors = new Float32Array(count * 3);
+    // per-building grey (±6 %, as in nagoya_flood) so that overlapping buildings keep visible outlines
+    this.bldgBase = [];
 
     for (let k = 0; k < count; k++) {
       const b = buildings[k];
@@ -412,8 +414,10 @@ export class TsunamiScene {
       mesh.setMatrixAt(k, dummy.matrix);
       this.bldgPositions.push({ x: wx, z: wz, h: b.h, groundH });
 
-      // Default light urban concrete color
-      mesh.setColorAt(k, new THREE.Color(0xd0d5dd));
+      const v = 0.80 + (Math.abs(Math.sin(k * 12.9898) * 43758.5453) % 1) * 0.12;
+      const base = new THREE.Color(v, v * 0.995, v * 0.98);
+      this.bldgBase.push(base);
+      mesh.setColorAt(k, base);
     }
 
     mesh.instanceMatrix.needsUpdate = true;
@@ -507,6 +511,26 @@ export class TsunamiScene {
     const { wnx, wny, renderStep: step } = this;
     const { nx, ny } = this.meta;
 
+    if (!this.hideY) {
+      // lowest ground within one render step of each vertex, minus 2 m
+      this.hideY = new Float32Array(wnx * wny);
+      for (let j = 0; j < wny; j++) for (let i = 0; i < wnx; i++) {
+        let m = Infinity;
+        for (let y = Math.max(0, j * step - step); y <= Math.min(ny - 1, j * step + step); y++) {
+          for (let x = Math.max(0, i * step - step); x <= Math.min(nx - 1, i * step + step); x++) m = Math.min(m, this.ground[y * nx + x]);
+        }
+        this.hideY[j * wnx + i] = m - 2;
+      }
+    }
+    if (!this.nearOpenWater && this.waterMask) {
+      // render vertices on land next to an open-water vertex
+      this.nearOpenWater = new Uint8Array(wnx * wny);
+      const isW = (i, j) => i >= 0 && j >= 0 && i < wnx && j < wny && this.waterMask[Math.min(ny - 1, j * step) * nx + Math.min(nx - 1, i * step)] === 1;
+      for (let j = 0; j < wny; j++) for (let i = 0; i < wnx; i++) {
+        if (isW(i, j)) continue;
+        if (isW(i - 1, j) || isW(i + 1, j) || isW(i, j - 1) || isW(i, j + 1) || isW(i - 1, j - 1) || isW(i + 1, j + 1) || isW(i - 1, j + 1) || isW(i + 1, j - 1)) this.nearOpenWater[j * wnx + i] = 1;
+      }
+    }
     const pos = this.waterMesh.geometry.attributes.position.array;
     const col = this.waterMesh.geometry.attributes.color.array;
     const c = new THREE.Color();
@@ -522,13 +546,16 @@ export class TsunamiScene {
         const vertY = idx * 3 + 1;
         const colIdx = idx * 3;
 
-        // If water depth is negligible (dry ground or not yet flooded)
-        if (d < 0.05) {
-          // Hide vertex safely 2m beneath local ground elevation!
-          pos[vertY] = zb - 2.0;
-          col[colIdx] = C_DRY.r;
-          col[colIdx + 1] = C_DRY.g;
-          col[colIdx + 2] = C_DRY.b;
+        // If water depth is negligible (dry ground or not yet flooded), or a detail tile draws it
+        if (d < 0.05 || this.detailHide?.[idx]) {
+          // Hide the vertex 2 m below the lowest ground around it (moats and slopes between the 30 m vertices
+          // must not show the hidden surface). Its colour bleeds into the triangles at the water's edge: sea
+          // colour next to the open water, the shallowest legend colour elsewhere
+          pos[vertY] = this.hideY[idx];
+          const dry = this.nearOpenWater?.[idx] ? C_SEA_DEEP : C_DRY;
+          col[colIdx] = dry.r;
+          col[colIdx + 1] = dry.g;
+          col[colIdx + 2] = dry.b;
           continue;
         }
 
@@ -594,13 +621,83 @@ export class TsunamiScene {
     // Update building warning colors on inundation
     if (this.buildingsMesh && bldgWet && this.buildingsMesh.instanceColor) {
       const wetCol = new THREE.Color(0xff4444); // Flooded building red
-      const dryCol = new THREE.Color(0xd0d5dd); // Dry building concrete
 
       for (let k = 0; k < bldgWet.length; k++) {
         const isWet = bldgWet[k] === 1;
-        this.buildingsMesh.setColorAt(k, isWet ? wetCol : dryCol);
+        this.buildingsMesh.setColorAt(k, isWet ? wetCol : this.bldgBase[k]);
       }
       this.buildingsMesh.instanceColor.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Detailed Osaka Castle keep at its PLATEAU position (spec = public/data/castle.json); the plain building
+   * blocks within its stone base are no longer drawn (they stay in the flow solver as obstacles).
+   */
+  addCastle(spec) {
+    const k = spec.keep;
+    const castle = buildCastle();
+    const x = k.E - this.meta.originE, z = this.meta.originN - k.N; // region-local
+    castle.position.set(x - this.W / 2, k.base, z - this.H / 2);
+    castle.rotation.y = (k.rot * Math.PI) / 180; // counter-clockwise from east in plan
+    this.scene.add(castle);
+    this.castle = { object: castle, x, z, radius: castle.userData.radius };
+    const mesh = this.buildingsMesh;
+    if (mesh) {
+      mesh.userData.orig ||= mesh.instanceMatrix.array.slice();
+      for (let i = 0; i < mesh.count; i++) {
+        const o = mesh.userData.orig;
+        const bx = o[i * 16 + 12] + this.W / 2, bz = o[i * 16 + 14] + this.H / 2;
+        if (Math.hypot(bx - x, bz - z) > this.castle.radius) continue;
+        o.fill(0, i * 16, i * 16 + 16);
+        mesh.instanceMatrix.array.fill(0, i * 16, i * 16 + 16);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** Is region-local (x, z) on the detailed castle's stone base (where it replaces the building blocks)? */
+  onCastle(x, z) {
+    return !!this.castle && Math.hypot(x - this.castle.x, z - this.castle.z) <= this.castle.radius;
+  }
+
+  /**
+   * Rectangle covered by a 2 m detail tile (region-local metres { x0, z0, x1, z1 }, or null): the 15 m
+   * buildings, shore walls, water and ground inside it are hidden so the tile's own drawing shows.
+   */
+  setDetailRect(rect) {
+    this.detailRect = rect;
+    const inside = (x, z) => rect && x >= rect.x0 && x <= rect.x1 && z >= rect.z0 && z <= rect.z1;
+    const hideInstances = (mesh, posOf) => {
+      if (!mesh) return;
+      mesh.userData.orig ||= mesh.instanceMatrix.array.slice();
+      const arr = mesh.instanceMatrix.array, orig = mesh.userData.orig;
+      for (let k = 0; k < mesh.count; k++) {
+        const [x, z] = posOf(k, orig);
+        if (inside(x, z)) arr.fill(0, k * 16, k * 16 + 16);
+        else arr.set(orig.subarray(k * 16, k * 16 + 16), k * 16);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    };
+    // instance translation is at matrix elements 12 / 14 (scene coordinates)
+    const fromMatrix = (k, orig) => [orig[k * 16 + 12] + this.W / 2, orig[k * 16 + 14] + this.H / 2];
+    hideInstances(this.buildingsMesh, fromMatrix);
+    hideInstances(this.seawallMgr?.perimeterMesh, fromMatrix);
+    if (this.groundMesh) {
+      const pos = this.groundMesh.geometry.attributes.position;
+      this.groundMesh.userData.origY ||= Float32Array.from({ length: pos.count }, (_, k) => pos.getY(k));
+      const origY = this.groundMesh.userData.origY;
+      for (let k = 0; k < pos.count; k++) {
+        pos.setY(k, inside(pos.getX(k) + this.W / 2, pos.getZ(k) + this.H / 2) ? origY[k] - 40 : origY[k]);
+      }
+      pos.needsUpdate = true;
+    }
+    // water vertices inside the tile (render grid) stay hidden in updateFrame
+    const { wnx, wny, renderStep: step } = this;
+    const res = this.meta.res;
+    this.detailHide = rect ? new Uint8Array(wnx * wny) : null;
+    if (rect) for (let j = 0; j < wny; j++) for (let i = 0; i < wnx; i++) {
+      if (inside((i * step + 0.5) * res, (j * step + 0.5) * res)) this.detailHide[j * wnx + i] = 1;
     }
   }
 
@@ -630,44 +727,76 @@ export class TsunamiScene {
   }
 
   /**
-   * Outline of a town-level address: a translucent curtain (wallH m tall) standing on the ground along each
-   * ring, readable from far away. rings: [[worldX, worldZ, ...], ...] in region-local metres; null clears it.
+   * Extent of a town-level address, drawn like nagoya_flood: a red outline over everything and a faint
+   * red tint on the ground inside. rings: [[worldX, worldZ, ...], ...] in region-local metres; null clears it.
    */
-  setArea(rings, wallH = 25) {
-    if (this.areaGroup) {
-      this.areaGroup.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); });
-      this.scene.remove(this.areaGroup);
-      this.areaGroup = null;
+  setArea(rings) {
+    if (this.areaLines) {
+      for (const l of this.areaLines) { this.scene.remove(l); l.geometry.dispose(); l.material.dispose(); }
+      this.areaLines = null;
     }
+    this.tintGround(rings);
     if (!rings) return;
-    const group = new THREE.Group();
-    const wallMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
-    const lineMat = new THREE.LineBasicMaterial({ color: 0x00e5ff });
-    for (const r of rings) {
-      const pts = [];
+    const size = this.renderer.getSize(new THREE.Vector2());
+    this.areaLines = rings.map((r) => {
+      const pos = [];
       const n = r.length / 2;
-      for (let i = 0; i < n; i++) {
-        const x0 = r[i * 2] - this.W / 2, z0 = r[i * 2 + 1] - this.H / 2;
+      for (let i = 0; i <= n; i++) {
+        const x0 = r[(i % n) * 2] - this.W / 2, z0 = r[(i % n) * 2 + 1] - this.H / 2;
         const x1 = r[((i + 1) % n) * 2] - this.W / 2, z1 = r[((i + 1) % n) * 2 + 1] - this.H / 2;
-        const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 10)); // densified to ~10 m
+        const steps = i === n ? 1 : Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 10)); // draped every ~10 m
         for (let s = 0; s < steps; s++) {
           const t = s / steps, x = x0 + (x1 - x0) * t, z = z0 + (z1 - z0) * t;
-          pts.push(new THREE.Vector3(x, this.surfaceAt(x, z), z));
+          pos.push(x, this.surfaceAt(x, z) + 1, z);
         }
       }
-      pts.push(pts[0].clone());
-      const pos = new Float32Array(pts.length * 6);
-      pts.forEach((p, k) => pos.set([p.x, p.y, p.z, p.x, p.y + wallH, p.z], k * 6));
-      const idx = [];
-      for (let k = 0; k + 1 < pts.length; k++) idx.push(k * 2, k * 2 + 1, k * 2 + 2, k * 2 + 1, k * 2 + 3, k * 2 + 2);
-      const wall = new THREE.BufferGeometry();
-      wall.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      wall.setIndex(idx);
-      group.add(new THREE.Mesh(wall, wallMat));
-      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map((p) => p.clone().setY(p.y + wallH))), lineMat));
+      const g = new LineGeometry();
+      g.setPositions(pos);
+      const m = new LineMaterial({ color: 0xd7263d, linewidth: 1.5, transparent: true, opacity: 0.9, depthTest: false });
+      m.resolution.copy(size);
+      const l = new Line2(g, m);
+      l.computeLineDistances();
+      l.renderOrder = 11;
+      l.frustumCulled = false;
+      this.scene.add(l);
+      return l;
+    });
+  }
+
+  /** Faint red tint on the ground cells inside the rings (even-odd, so holes stay clear); null clears it. */
+  tintGround(rings) {
+    if (!this.groundMesh) return;
+    const { nx, ny, res } = this.meta;
+    const geom = this.groundMesh.geometry;
+    let col = geom.attributes.color;
+    if (!col) {
+      if (!rings) return;
+      col = new THREE.Float32BufferAttribute(new Float32Array(nx * ny * 3).fill(1), 3);
+      geom.setAttribute('color', col);
+      this.groundMesh.material.vertexColors = true;
+      this.groundMesh.material.needsUpdate = true;
     }
-    this.areaGroup = group;
-    this.scene.add(group);
+    const c = col.array;
+    c.fill(1);
+    if (rings) {
+      for (let j = 0; j < ny; j++) {
+        const zc = (j + 0.5) * res;
+        const xs = [];
+        for (const r of rings) {
+          const n = r.length / 2;
+          for (let i = 0, k = n - 1; i < n; k = i++) {
+            const z1 = r[k * 2 + 1], z2 = r[i * 2 + 1];
+            if ((z1 <= zc && z2 > zc) || (z2 <= zc && z1 > zc)) xs.push(r[k * 2] + ((zc - z1) / (z2 - z1)) * (r[i * 2] - r[k * 2]));
+          }
+        }
+        xs.sort((p, q) => p - q);
+        for (let q = 0; q + 1 < xs.length; q += 2) {
+          const i0 = Math.max(0, Math.ceil(xs[q] / res - 0.5)), i1 = Math.min(nx - 1, Math.floor(xs[q + 1] / res - 0.5));
+          for (let i = i0; i <= i1; i++) { const k = (j * nx + i) * 3; c[k + 1] = 0.8; c[k + 2] = 0.82; }
+        }
+      }
+    }
+    col.needsUpdate = true;
   }
 
   getGroundAt(worldX, worldZ) {
@@ -708,5 +837,6 @@ export class TsunamiScene {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    for (const l of this.areaLines || []) l.material.resolution.set(w, h);
   }
 }

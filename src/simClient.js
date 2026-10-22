@@ -47,8 +47,8 @@ export class SimClient {
       this.onKeyframe?.(m);
     } else if (m.type === 'computeDone') {
       this.onComputeDone?.(m);
-    } else if (m.type === 'csv') {
-      this.pending.get(m.reqId)?.(m.csv);
+    } else if (m.type === 'history') {
+      this.pending.get(m.reqId)?.(m.history);
       this.pending.delete(m.reqId);
     }
   }
@@ -126,8 +126,9 @@ export class SimClient {
     return this.request({ type: 'advance', seconds });
   }
 
-  csv() {
-    return this.request({ type: 'csv' });
+  /** Area-wide stats logged every 10 s of the computed run: [{ timeSec, waveHeight, maxRunup, areaHa, bldgs }] */
+  history() {
+    return this.request({ type: 'history' });
   }
 
   dispose() {

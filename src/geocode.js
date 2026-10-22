@@ -1,7 +1,9 @@
 // Address / place search for the observation pin: landmark names from labels.json first, then the
-// GSI address search (needs a network connection). Only hits inside the simulation area are kept.
+// GSI address search (needs a network connection). Hits just outside the simulation area (within the
+// backdrop) are returned separately, so the UI can say why they get no pin.
 // An address with a block number is a point; one given only down to the town / chome is shown as the
-// extent of that town from towns.json (e-Stat 町丁・字 boundaries, tools/build-towns.mjs).
+// extent of that town from towns.json (e-Stat 町丁・字 boundaries, tools/build-towns.mjs). Town names are also
+// matched in towns.json directly, so towns are found offline or when the GSI search returns nothing.
 import { toPlane } from './proj.js';
 
 const GSI_URL = 'https://msearch.gsi.go.jp/address-search/AddressSearch?q=';
@@ -38,9 +40,25 @@ async function townArea(title, meta) {
   return { parts: hits.map((h) => h.name), m2, bbox: [minX, minZ, maxX, maxZ], rings };
 }
 
+/** Towns in towns.json whose ward + name contain the query, grouped by town (chome merged): full titles. */
+async function localTownTitles(q) {
+  const key = q.replace(/\s/g, '').replace(/^大阪府/, '').replace(/^大阪市/, '');
+  if (key.length < 2 || /[0-9０-９]/.test(key)) return [];
+  const titles = new Set();
+  for (const t of await towns()) {
+    const city = t.city.replace(/^大阪市/, '');
+    if (!(city + t.name).includes(key) && !t.name.startsWith(key)) continue;
+    titles.add(t.pref + t.city + t.name.replace(/[一二三四五六七八九十]+丁目$/, ''));
+    if (titles.size >= 8) break;
+  }
+  return [...titles];
+}
+
+const NEARBY_M = 25000; // out-of-area hits farther than this from the area are dropped (other cities)
+
 /**
- * Candidates for a query: [{ title, title_en, worldX, worldZ, source: 'label' | 'gsi', kind: 'point' | 'area', area? }]
- * (region-local metres; area.rings are region-local too).
+ * Candidates for a query: { inside: [{ title, title_en, worldX, worldZ, source: 'label' | 'gsi' | 'town', kind: 'point' | 'area', area? }],
+ * outside: [{ title, worldX, worldZ }] } (region-local metres; area.rings are region-local too).
  */
 export async function searchPlaces(q, meta, landmarks = []) {
   const toWorld = (lon, lat) => {
@@ -48,31 +66,48 @@ export async function searchPlaces(q, meta, landmarks = []) {
     const worldX = e - meta.originE;
     const worldZ = meta.originN - n;
     const inside = worldX >= 0 && worldZ >= 0 && worldX < meta.widthM && worldZ < meta.heightM;
-    return inside ? { worldX, worldZ } : null;
+    return { worldX, worldZ, inside };
   };
+  const nearby = ({ worldX, worldZ }) =>
+    Math.hypot(Math.max(0, -worldX, worldX - meta.widthM), Math.max(0, -worldZ, worldZ - meta.heightM)) < NEARBY_M;
 
   const out = [];
+  const outside = [];
   for (const l of landmarks) {
     if (!l.name.includes(q) && !(l.name_en || '').toLowerCase().includes(q.toLowerCase())) continue;
-    const w = toWorld(l.lon, l.lat);
-    if (w) out.push({ title: l.name, title_en: l.name_en || l.name, ...w, source: 'label', kind: 'point' });
+    const { worldX, worldZ, inside } = toWorld(l.lon, l.lat);
+    if (inside) out.push({ title: l.name, title_en: l.name_en || l.name, worldX, worldZ, source: 'label', kind: 'point' });
   }
 
-  let list = [];
+  let list = [], gsiError = null;
   try {
     const r = await fetch(GSI_URL + encodeURIComponent(q));
     list = await r.json();
   } catch (e) {
-    if (!out.length) throw new Error(e.message);
+    gsiError = e.message;
   }
   for (const f of list) {
     const [lon, lat] = f.geometry.coordinates;
-    const w = toWorld(lon, lat);
-    if (!w) continue;
+    const { worldX, worldZ, inside } = toWorld(lon, lat);
     const title = f.properties.title;
+    if (!inside) {
+      if (outside.length < 5 && nearby({ worldX, worldZ })) outside.push({ title, worldX, worldZ });
+      continue;
+    }
     const area = isPointAddress(title) ? null : await townArea(title, meta);
-    out.push({ title, title_en: title, ...w, source: 'gsi', kind: area ? 'area' : 'point', area });
+    // a place of the same name as a landmark (e.g. 大阪城) is listed once, at the landmark
+    if (!area && out.some((h) => h.source === 'label' && h.title === title)) continue;
+    out.push({ title, title_en: title, worldX, worldZ, source: 'gsi', kind: area ? 'area' : 'point', area });
     if (out.length >= 15) break;
   }
-  return out;
+  // towns from the local boundaries that the GSI search did not list
+  for (const title of await localTownTitles(q)) {
+    if (out.some((h) => h.title === title)) continue;
+    const area = await townArea(title, meta);
+    if (!area) continue;
+    const worldX = (area.bbox[0] + area.bbox[2]) / 2, worldZ = (area.bbox[1] + area.bbox[3]) / 2;
+    out.push({ title, title_en: title, worldX, worldZ, source: 'town', kind: 'area', area });
+  }
+  if (!out.length && gsiError) throw new Error(gsiError);
+  return { inside: out, outside };
 }

@@ -28,11 +28,11 @@ export function offshoreWaveEta(t, { waveHeight, wavePeriod, hasPreDrawdown }) {
   return waveHeight * sech * sech;
 }
 
-const SPONGE_CELLS = 40; // width of the wave-generating / absorbing zone at the bay edges
+const SPONGE_M = 400; // width of the wave-generating / absorbing zone at the bay edges
 // The boundary CSV (nankai_trough, sampled offshore on the region's edge) / scenario height is
 // generated as the incident wave; reflection from the port walls is computed here.
 const INCIDENT_FACTOR = 1.0;
-const OPEN_WATER_R = 30; // half window (cells) for the open-water test of the relaxation zone
+const OPEN_WATER_R_M = 300; // half window for the open-water test of the relaxation zone
 
 export class TsunamiSimulator {
   constructor({ meta, ground, waterMask = null, seawallManager, buildings = [] }) {
@@ -104,11 +104,15 @@ export class TsunamiSimulator {
   initBuildingMask() {
     const { nx, ny, res, buildings } = this;
     this.bldgMask.fill(0);
-    for (const b of buildings) {
-      const gx0 = Math.max(0, Math.floor((b.x - b.w * 0.5) / res));
-      const gx1 = Math.min(nx - 1, Math.ceil((b.x + b.w * 0.5) / res));
-      const gy0 = Math.max(0, Math.floor((b.z - b.d * 0.5) / res));
-      const gy1 = Math.min(ny - 1, Math.ceil((b.z + b.d * 0.5) / res));
+    // cells whose centre lies on the footprint (at least the cell under the building's centre), so
+    // neighbouring buildings do not merge into walls across the streets between them
+    const span = (c, size, n) => {
+      let a = Math.ceil((c - size * 0.5) / res - 0.5), z = Math.floor((c + size * 0.5) / res - 0.5);
+      if (a > z) a = z = Math.floor(c / res);
+      return [Math.max(0, a), Math.min(n - 1, z)];
+    };
+    const spans = buildings.map((b) => [...span(b.x, b.w, nx), ...span(b.z, b.d, ny)]);
+    for (const [gx0, gx1, gy0, gy1] of spans) {
       for (let y = gy0; y <= gy1; y++) {
         for (let x = gx0; x <= gx1; x++) {
           // footprints reaching over rivers / quays (bridges, piers) must not dam the channel
@@ -116,6 +120,35 @@ export class TsunamiSimulator {
         }
       }
     }
+    // street cells around each footprint (land, not under a building), as CSR lists: a building counts as
+    // flooded from the water beside it — its own cells are obstacles and stay dry inside
+    const start = new Uint32Array(buildings.length + 1);
+    const cells = [];
+    spans.forEach(([gx0, gx1, gy0, gy1], b) => {
+      for (let y = gy0 - 1; y <= gy1 + 1; y++) {
+        for (let x = gx0 - 1; x <= gx1 + 1; x++) {
+          if (x >= gx0 && x <= gx1 && y >= gy0 && y <= gy1) continue;
+          if (x < 0 || y < 0 || x >= nx || y >= ny) continue;
+          const k = y * nx + x;
+          if (!this.bldgMask[k] && this.isLand(k)) cells.push(k);
+        }
+      }
+      start[b + 1] = cells.length;
+    });
+    this.bldgRingStart = start;
+    this.bldgRing = Uint32Array.from(cells);
+  }
+
+  /**
+   * Building b is flooded when at least a tenth of the street cells around it have 0.5 m of water or more
+   * (the 90th percentile >= 0.5 m, the same rule as the 2 m detail tile).
+   */
+  buildingFlooded(b) {
+    const s = this.bldgRingStart[b], e = this.bldgRingStart[b + 1];
+    if (e === s) return false;
+    let wet = 0;
+    for (let p = s; p < e; p++) if (this.depth[this.bldgRing[p]] >= 0.5) wet++;
+    return wet >= Math.max(1, Math.ceil((e - s) * 0.1));
   }
 
   initWater() {
@@ -152,16 +185,16 @@ export class TsunamiSimulator {
 
   /**
    * Wave-generating / absorbing relaxation zone along the Osaka Bay edges (west and south; rivers
-   * leaving the north / east edges stay closed). Within SPONGE_CELLS of those edges the water level
+   * leaving the north / east edges stay closed). Within SPONGE_M of those edges the water level
    * and discharge are relaxed towards the incident long wave, so the wave enters while waves
    * reflected by the port leave the domain instead of building up between the coast and the edge.
    */
   setupBoundary() {
     const { nx, ny, ground, res } = this;
-    const L = SPONGE_CELLS;
-    // Only open bay water: >= 95 % water within +-OPEN_WATER_R cells, which keeps the zone out of
+    const L = Math.round(SPONGE_M / res);
+    // Only open bay water: >= 95 % water within +-OPEN_WATER_R_M, which keeps the zone out of
     // river mouths (e.g. the Yamato River on the south edge) and away from the quay walls.
-    const R = OPEN_WATER_R;
+    const R = Math.round(OPEN_WATER_R_M / res);
     const sat = new Int32Array((nx + 1) * (ny + 1));
     for (let y = 0; y < ny; y++) {
       let row = 0;
@@ -495,17 +528,9 @@ export class TsunamiSimulator {
 
     // Inundated building count
     let inundatedBldgs = 0;
-    const res = this.res;
-    const nx = this.nx;
-    for (const b of buildings) {
-      const gx = Math.min(nx - 1, Math.max(0, Math.floor(b.x / res)));
-      const gy = Math.min(this.ny - 1, Math.max(0, Math.floor(b.z / res)));
-      if (depth[gy * nx + gx] >= 0.5) {
-        inundatedBldgs++;
-      }
-    }
+    for (let b = 0; b < buildings.length; b++) if (this.buildingFlooded(b)) inundatedBldgs++;
 
-    const cellAreaM2 = res * res;
+    const cellAreaM2 = this.res * this.res;
     const areaHa = (inundatedLandCells * cellAreaM2) / 10000;
 
     this.stats.simTimeSec = this.simTimeSec;
@@ -518,12 +543,10 @@ export class TsunamiSimulator {
   logHistory() {
     this.history.push({
       timeSec: Math.round(this.simTimeSec),
-      timeMin: +(this.simTimeSec / 60).toFixed(2),
       waveHeight: +this.stats.offshoreWaveHeight.toFixed(2),
       maxRunup: +this.stats.maxRunup.toFixed(2),
       areaHa: +this.stats.inundatedAreaHa.toFixed(1),
       bldgs: this.stats.inundatedBuildings,
-      overtopping: this.stats.isOvertopping,
     });
   }
 
@@ -541,22 +564,5 @@ export class TsunamiSimulator {
       maxDepth: this.maxDepth[idx],
       waterEta: this.eta[idx],
     };
-  }
-
-  generateCsv() {
-    const header = [
-      'Time (s)',
-      'Time (min)',
-      'Offshore Tsunami Wave (m)',
-      'Max Runup Elevation (m)',
-      'Inundated Area (ha)',
-      'Inundated Buildings',
-      'Overtopping Active',
-    ];
-    const rows = [header.join(',')];
-    for (const h of this.history) {
-      rows.push([h.timeSec, h.timeMin, h.waveHeight, h.maxRunup, h.areaHa, h.bldgs, h.overtopping ? 'YES' : 'NO'].join(','));
-    }
-    return '\uFEFF' + rows.join('\r\n');
   }
 }

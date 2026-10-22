@@ -1,7 +1,7 @@
 /**
  * Builds seawalls.json: the three major arch sluice gates (三大水門) of Osaka.
  *
- * Each gate is given by an approximate centre (grid cell) on its river; the gate line is fitted
+ * Each gate is given by an approximate centre (lon / lat) on its river; the gate line is fitted
  * across the channel of water.u8 (shortest crossing through the centre) and extended into both banks.
  * Coastal seawalls and river parapets are not listed here: SeawallManager derives them at runtime
  * from water.u8 along the real coastline / river banks (outside vs inside of the gates).
@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { toLonLat } from './lib/proj.mjs';
+import { toLonLat, toPlane } from './lib/proj.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, '..');
@@ -24,7 +24,7 @@ const GATES = [
     name: '安治川水門 (三大水門)',
     name_en: 'Ajigawa Sluice Gate',
     designHeight: 7.4,
-    cell: [975, 385],
+    lonLat: [135.45235, 34.67399],
     description: '安治川の津波遡上を防ぐアーチ型水門（T.P. +7.4m）。市街地（梅田・野田・中之島）を守る要。',
     description_en: 'Arch-shaped floodgate (T.P. +7.4m) protecting downtown Osaka (Umeda, Nakanoshima) from tsunami surges up Ajigawa.',
   },
@@ -33,7 +33,7 @@ const GATES = [
     name: '尻無川水門 (三大水門)',
     name_en: 'Shirinashigawa Sluice Gate',
     designHeight: 6.7,
-    cell: [1100, 555],
+    lonLat: [135.46507, 34.65998],
     description: '尻無川河口の防潮水門（T.P. +6.7m）。大正区・港区のゼロメートル市街地を防護。',
     description_en: 'Floodgate (T.P. +6.7m) protecting low-lying coastal urban areas in Taisho and Minato wards.',
   },
@@ -42,7 +42,7 @@ const GATES = [
     name: '木津川水門 (三大水門)',
     name_en: 'Kizugawa Sluice Gate',
     designHeight: 7.2,
-    cell: [1220, 715],
+    lonLat: [135.47912, 34.64521],
     description: '木津川の防潮水門（T.P. +7.2m）。難波・道頓堀・ミナミ繁華街への津波流入を阻止。',
     description_en: 'Floodgate (T.P. +7.2m) preventing tsunami surge from penetrating into Namba and Dotonbori.',
   },
@@ -103,7 +103,9 @@ function main() {
   const water = new Uint8Array(fs.readFileSync(path.join(regionDir, 'water.u8')));
 
   const seawalls = GATES.map((g) => {
-    const { p0, p1, widthM } = fitGate(water, nx, ny, g.cell);
+    const [e, n] = toPlane(...g.lonLat);
+    const cell = [Math.floor((e - originE) / res), Math.floor((originN - n) / res)];
+    const { p0, p1, widthM } = fitGate(water, nx, ny, cell);
     const mid = [((p0[0] + p1[0]) / 2) * res, ((p0[1] + p1[1]) / 2) * res];
     const [lon, lat] = toLonLat(originE + mid[0], originN - mid[1]);
     console.log(`${g.id}: river width ${widthM.toFixed(0)} m at ${lon.toFixed(5)}, ${lat.toFixed(5)}`);
@@ -113,7 +115,7 @@ function main() {
       name_en: g.name_en,
       type: 'sluice_gate',
       designHeight: g.designHeight,
-      widthM: 20,
+      widthM: Math.max(20, 2 * res), // at least two cells thick, so the line never leaks diagonally
       lon: +lon.toFixed(5),
       lat: +lat.toFixed(5),
       points: [p0, p1].map(([x, y]) => [+(x * res).toFixed(1), +(y * res).toFixed(1)]),
@@ -149,9 +151,11 @@ function main() {
 
   const ci = process.argv.indexOf('--check');
   if (ci > 0) {
-    const a = jpeg.decode(fs.readFileSync(path.join(regionDir, 'aerial.jpg')), { useTArray: true });
+    // one pixel per cell: land grey, open water blue, inner rivers green, gates orange
+    const a = { data: new Uint8Array(nx * ny * 4).fill(255) };
     for (let k = 0; k < nx * ny; k++) {
       const o = k * 4;
+      a.data[o] = a.data[o + 1] = a.data[o + 2] = 200;
       if (gate[k]) { a.data[o] = 255; a.data[o + 1] = 160; a.data[o + 2] = 0; }
       else if (water[k] && !outer[k]) { a.data[o] = 0; a.data[o + 1] = 220; a.data[o + 2] = 90; }
       else if (water[k]) { a.data[o] = 20; a.data[o + 1] = 60; a.data[o + 2] = 200; }

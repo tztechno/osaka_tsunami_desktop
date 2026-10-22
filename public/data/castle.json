@@ -1,0 +1,13 @@
+{
+  "source": "PLATEAU Osaka 2025, udx/bldg/52350422 (keep: LOD2 walls)",
+  "keep": {
+    "id": "bldg_41117eae-5c12-40c2-8d1a-9461b8db7784",
+    "E": -43443.79,
+    "N": -145515.12,
+    "rot": -5.5,
+    "base": 30.9,
+    "top": 84.11,
+    "hx": 20.1,
+    "hy": 22.04
+  }
+}

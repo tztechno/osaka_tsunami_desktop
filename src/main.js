@@ -10,6 +10,8 @@ import { I18N } from './i18n.js';
 import { recordVideo } from './recorder.js';
 import { Timeline } from './timeline.js';
 import { searchPlaces } from './geocode.js';
+import { toLonLat } from './proj.js';
+import { TileController } from './tile/tileController.js';
 
 let currentLang = 'ja';
 let scene = null;
@@ -25,7 +27,8 @@ let activeProfile = null;
 let profileStartSec = 0;
 let isPlaying = false;
 // Computed-ahead playback: the run is computed once, then played / scrubbed from keyframes
-const KEYFRAME_SEC = 30;
+// (every 30 s; every 60 s for runs over 90 min, which keeps a 4 h run's keyframes near 400 MB)
+const keyframeSec = (span) => (span > 5400 ? 60 : 30);
 const RENDER_STEP = 2;
 let timeline = null;
 let computing = false;
@@ -33,7 +36,8 @@ let playT = 0; // simulated time being shown
 let lastShownT = -1;
 let lastTick = performance.now();
 let playSpeed = 60; // simulated seconds per real second
-let pin = null; // { vertex, elevation } or, for a town area, { vertices, ha }
+let pin = null; // { vertex, elevation, title, x, z } or, for a town area, { vertices, ha, title, x, z, rings }
+let tileCtl = null; // 2 m detail tile panel
 let recordAbortController = null;
 
 async function init() {
@@ -81,6 +85,14 @@ async function init() {
   scene = new TsunamiScene(canvas);
   await scene.loadRegion(meta, ground, 'data/regions/osaka_port/aerial.jpg', seawallMgr, buildings, waterMask);
 
+  // 4a. Detailed Osaka Castle keep in place of the PLATEAU block
+  try {
+    const castleSpec = await fetch('data/castle.json').then((r) => (r.ok ? r.json() : null));
+    if (castleSpec) scene.addCastle(castleSpec);
+  } catch (e) {
+    console.warn('Castle not loaded:', e);
+  }
+
   // 4b. Surrounding terrain backdrop (osaka.tif + aerial): Osaka plain, Rokko, Ikoma
   try {
     const outerMetaRes = await fetch('data/regions/outer/meta.json');
@@ -122,6 +134,14 @@ async function init() {
     },
   });
   timeline = new Timeline({ meta, ground, renderStep: RENDER_STEP });
+  tileCtl = new TileController({
+    scene, meta, ground, waterMask, seawallMgr,
+    timeline: () => timeline,
+    lang: () => currentLang,
+    pin: () => pin,
+    startCompute: () => startCompute(),
+    onUpdate: () => { lastShownT = -1; if (timeline.frames.length) showAt(playT); },
+  });
 
   // Apply default scenario
   await loadScenario(TSUNAMI_SCENARIOS.nankai_osaka_trimmed);
@@ -157,12 +177,18 @@ function handleKeyframe(k) {
 function applyDisplay(m) {
   lastFrame = m;
   scene.updateFrame(m);
+  tileCtl?.showAt(m.simTimeSec);
   if (m.stats) updateHud(m.stats, m.simTimeSec || 0);
   if (pin && timeline.frames.length) {
-    const series = pin.vertices ? timeline.seriesMaxAt(pin.vertices, m.simTimeSec) : timeline.seriesAt(pin.vertex, m.simTimeSec);
+    // the 2 m detail run where the pin / area lies on its tile, else the 15 m run
+    const fine = tileCtl?.seriesFor(pin, m.simTimeSec);
+    const series = fine || (pin.vertices ? timeline.seriesMaxAt(pin.vertices, m.simTimeSec) : timeline.seriesAt(pin.vertex, m.simTimeSec));
     const cur = series.length ? series[series.length - 1].depth : 0;
     const max = Math.max(0, ...series.map((p) => p.depth));
-    const label = pin.vertices ? `範囲 ${pin.ha} ha | 範囲内(陸地)の最大水深: ${cur.toFixed(2)}m (最大: ${max.toFixed(2)}m)` : null;
+    const tag = fine ? '[2m] ' : '';
+    const label = pin.vertices
+      ? `${tag}範囲 ${pin.ha} ha | 範囲内(陸地)の最大水深: ${cur.toFixed(2)}m (最大: ${max.toFixed(2)}m)`
+      : fine ? `${tag}標高: ${pin.elevation.toFixed(1)}m | 水深: ${cur.toFixed(2)}m (最大: ${max.toFixed(2)}m)` : null;
     chart.setPoint({ gx: pin.vertex ?? pin.vertices[0], gz: 0, elevation: pin.elevation ?? 0, waterDepth: cur, maxDepth: max, label });
     chart.history = series.map((p) => ({ timeSec: p.timeSec - timeline.start, depth: p.depth }));
     chart.draw();
@@ -170,18 +196,20 @@ function applyDisplay(m) {
 }
 
 /** Observation pin at region-local (worldX, worldZ): marker plus the hydrograph of that cell. */
-function placePin(worldX, worldZ) {
+function placePin(worldX, worldZ, title = null) {
   scene.setArea(null);
   scene.setPin(worldX, worldZ);
   const { res } = meta;
   const vi = Math.min(timeline.wnx - 1, Math.floor(worldX / res / RENDER_STEP));
   const vj = Math.min(timeline.wny - 1, Math.floor(worldZ / res / RENDER_STEP));
-  pin = { vertex: vj * timeline.wnx + vi, elevation: scene.getGroundAt(worldX, worldZ) };
+  const [lon, lat] = toLonLat(meta.originE + worldX, meta.originN - worldZ);
+  title ||= `N${lat.toFixed(5)} E${lon.toFixed(5)}`;
+  pin = { vertex: vj * timeline.wnx + vi, elevation: scene.getGroundAt(worldX, worldZ), title, x: worldX, z: worldZ };
   if (timeline.frames.length) showAt(playT);
 }
 
 /** Town-level address: outline the town and chart the deepest water on land inside it. */
-function placeArea(area) {
+function placeArea(area, title) {
   scene.clearPin();
   scene.setArea(area.rings);
   const { res } = meta;
@@ -211,7 +239,7 @@ function placeArea(area) {
     }
   }
   if (!vertices.length) return;
-  pin = { vertices, ha: (area.m2 / 1e4).toFixed(1) };
+  pin = { vertices, ha: (area.m2 / 1e4).toFixed(1), title, x: (area.bbox[0] + area.bbox[2]) / 2, z: (area.bbox[1] + area.bbox[3]) / 2, rings: area.rings };
   if (timeline.frames.length) showAt(playT);
 }
 
@@ -232,8 +260,13 @@ function updateHud(stats, simTimeSec) {
   document.getElementById('hud-bldgs').textContent = stats.inundatedBuildings.toLocaleString();
 }
 
-/** Simulated span of a run: the whole CSV after its lead-in, or the scenario's duration. */
+/**
+ * Simulated span of a run: the chosen length (1-4 h from the start of the run), or by default the whole CSV
+ * after its lead-in / the scenario's duration. Past the end of a CSV its last water level is held.
+ */
 function runSpanSec() {
+  const chosen = +document.getElementById('select-duration').value;
+  if (chosen) return chosen * 60;
   if (activeProfile) return Math.max(600, activeProfile.tMax - profileStartSec);
   return (activeScenario.durationMin || 60) * 60;
 }
@@ -241,12 +274,13 @@ function runSpanSec() {
 function startCompute() {
   if (computing || timeline.frames.length) return;
   computing = true;
-  simClient.compute(runSpanSec(), KEYFRAME_SEC);
+  simClient.compute(runSpanSec(), keyframeSec(runSpanSec()));
   updateTimelineUi();
 }
 
 /** Settings changed: drop computed results; the worker is reset to the start state. */
 function invalidateTimeline() {
+  tileCtl?.clearRun();
   simClient.cancelCompute();
   timeline.clear();
   computing = false;
@@ -329,7 +363,14 @@ function showCsvInfo(profile) {
   const startInfo = currentLang === 'en'
     ? `starts at ${(lead / 60).toFixed(0)} min of the CSV (EQ +${fmt(lead + profile.timeOffset)}), skipping the quiet lead-in`
     : `CSVの ${(lead / 60).toFixed(0)}分目（地震後 ${fmt(lead + profile.timeOffset)}）から計算・静穏な導入部を省略`;
-  el.textContent = `✓ ${profile.name} (最大波高 ${profile.peakHeight.toFixed(2)}m, 継続 ${(profile.durationSec / 60).toFixed(0)}分) — ${startInfo}`;
+  // the run goes to the end of the CSV: say where that is, and warn when the highest water is right at the end
+  // (the CSV probably stops before the main wave has passed Osaka Bay)
+  const endEq = fmt(profile.tMax + profile.timeOffset);
+  const late = profile.tMax - profile.peakTimeSec < 600;
+  const endInfo = currentLang === 'en'
+    ? ` / CSV ends at EQ +${endEq}${late ? ' — the highest water is at its very end; the CSV may stop before the wave has passed (use a longer nankai_trough output)' : ''}`
+    : ` / CSVの終わり: 地震後 ${endEq}${late ? '（最大水位がCSVの終わり際です。波が通り過ぎる前にCSVが終わっている可能性があります。nankai_trough で長めに出力してください）' : ''}`;
+  el.textContent = `✓ ${profile.name} (最大波高 ${profile.peakHeight.toFixed(2)}m, 継続 ${(profile.durationSec / 60).toFixed(0)}分) — ${startInfo}${endInfo}`;
 }
 
 function hideCsvInfo() {
@@ -356,6 +397,10 @@ function setupEventListeners(canvas) {
   document.getElementById('slider-timeline').addEventListener('input', (e) => {
     showAt(timeline.start + parseFloat(e.target.value));
   });
+  document.getElementById('select-duration').addEventListener('change', () => {
+    invalidateTimeline();
+    simClient.reset();
+  });
   document.getElementById('select-play-speed').addEventListener('change', (e) => {
     playSpeed = parseFloat(e.target.value);
   });
@@ -374,6 +419,8 @@ function setupEventListeners(canvas) {
     customSeawallGroup.style.display = val === 'custom' ? 'flex' : 'none';
     seawallMgr.setPreset(val);
     invalidateTimeline();
+    tileCtl.refreshSurface();
+    scene.setDetailRect(scene.detailRect); // the wall boxes were rebuilt
     simClient.setBarriers(seawallMgr);
     simClient.reset();
   });
@@ -385,6 +432,8 @@ function setupEventListeners(canvas) {
     document.getElementById('val-seawall-h').textContent = `${h.toFixed(1)}m`;
     seawallMgr.setCustomHeight(h);
     invalidateTimeline();
+    tileCtl.refreshSurface();
+    scene.setDetailRect(scene.detailRect);
     simClient.setBarriers(seawallMgr);
     simClient.reset();
   });
@@ -445,17 +494,29 @@ function setupEventListeners(canvas) {
     }
   });
 
-  // Export CSV
+  // Export CSV: area-wide figures every 10 s of the computed run, on the HUD clocks
   document.getElementById('btn-export-csv').addEventListener('click', async () => {
-    const csvContent = await simClient.csv();
-    if (!csvContent) return;
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `osaka_tsunami_simulation_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const rows = await simClient.history();
+    if (!rows?.length) return;
+    const en = currentLang === 'en';
+    const header = [...clockHeader(), en ? 'Offshore wave (m)' : '沖合津波高 (m)', en ? 'Max run-up (m)' : '最大遡上高 (m)',
+      en ? 'Inundated area (ha)' : '浸水面積 (ha)', en ? 'Flooded buildings' : '浸水建物 (棟)'];
+    const body = rows.filter((r) => r.timeSec >= profileStartSec)
+      .map((r) => [...clockCols(r.timeSec), r.waveHeight, r.maxRunup, r.areaHa, r.bldgs]);
+    downloadCsv(`osaka_tsunami_result_${fileStamp()}.csv`, header, body);
+  });
+
+  // Hydrograph CSV of the pin / town area, from the computed keyframes
+  document.getElementById('btn-pin-csv').addEventListener('click', () => {
+    if (!pin || !timeline.frames.length) return;
+    const en = currentLang === 'en';
+    const series = pin.vertices ? timeline.seriesMaxAt(pin.vertices, Infinity) : timeline.seriesAt(pin.vertex, Infinity);
+    const depthHead = pin.vertices ? (en ? 'Max depth on land in area (m)' : '範囲内(陸地)の最大水深 (m)') : (en ? 'Water depth (m)' : '水深 (m)');
+    const header = [en ? 'Place' : '地点', ...clockHeader(), depthHead];
+    const place = pin.vertices ? `${pin.title} (${pin.ha} ha)` : `${pin.title} (${en ? 'ground' : '標高'} ${pin.elevation.toFixed(1)} m)`;
+    const body = series.filter((p) => p.timeSec >= profileStartSec).map((p) => [place, ...clockCols(p.timeSec), p.depth.toFixed(2)]);
+    const safe = pin.title.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
+    downloadCsv(`osaka_tsunami_hydrograph_${safe}_${fileStamp()}.csv`, header, body);
   });
 
   // Export MP4
@@ -508,32 +569,41 @@ function setupEventListeners(canvas) {
     if (!q) return;
     const dict = I18N[currentLang];
     addrMsg(dict.addressSearching);
-    let hits;
+    let hits, outside;
     try {
-      hits = await searchPlaces(q, meta, labelMgr?.labels);
+      ({ inside: hits, outside } = await searchPlaces(q, meta, labelMgr?.labels));
     } catch (err) {
       addrMsg(dict.addressFailed);
       return;
     }
-    if (!hits.length) { addrMsg(dict.addressNone); return; }
+    if (!hits.length && !outside.length) { addrMsg(dict.addressNone); return; }
     addrResults.innerHTML = '';
     for (const h of hits) {
       const btn = document.createElement('button');
       btn.type = 'button';
       const kind = h.kind === 'area' ? (currentLang === 'en' ? ' (area)' : '（範囲）') : '';
-      btn.textContent = `${h.source === 'label' ? '★ ' : ''}${currentLang === 'en' ? h.title_en : h.title}${kind}`;
+      btn.textContent = `${currentLang === 'en' ? h.title_en : h.title}${kind}`;
       btn.addEventListener('click', () => {
         let x = h.worldX, z = h.worldZ, dist = 1500;
         if (h.kind === 'area') {
           const [x0, z0, x1, z1] = h.area.bbox;
           x = (x0 + x1) / 2; z = (z0 + z1) / 2;
           dist = Math.max(1500, Math.max(x1 - x0, z1 - z0) * 1.6);
-          placeArea(h.area);
+          placeArea(h.area, h.title);
         } else {
-          placePin(x, z);
+          placePin(x, z, currentLang === 'en' ? h.title_en : h.title);
         }
         scene.flyTo(new THREE.Vector3(x - meta.widthM / 2, scene.getGroundAt(x, z), z - meta.heightM / 2), dist);
       });
+      addrResults.appendChild(btn);
+    }
+    // Places outside the simulation area: no water is computed there, so no pin; the camera can still go
+    for (const h of outside) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'outside';
+      btn.textContent = `${h.title}${outsideNote(h.worldX, h.worldZ)}`;
+      btn.addEventListener('click', () => scene.flyTo(new THREE.Vector3(h.worldX - meta.widthM / 2, 0, h.worldZ - meta.heightM / 2), 3000));
       addrResults.appendChild(btn);
     }
   });
@@ -572,7 +642,10 @@ function handleCsvFile(file) {
       showCsvInfo(profile);
       document.getElementById('select-scenario').value = 'custom';
     } catch (err) {
-      alert(`CSV読込エラー: ${err.message}`);
+      // shown in the panel: the desktop app's WebView does not show alert() dialogs
+      const el = document.getElementById('csv-info');
+      el.style.display = 'block';
+      el.textContent = currentLang === 'en' ? `CSV read error: ${err.message}` : `CSV読込エラー: ${err.message}`;
     }
   };
   reader.readAsText(file);
@@ -589,6 +662,11 @@ function updateLanguageUI() {
   setPlayButton();
   document.getElementById('btn-reset').textContent = currentLang === 'en' ? '⏮ Start' : '⏮ 先頭へ';
   document.getElementById('txt-label-speed').textContent = currentLang === 'en' ? 'Playback speed' : '再生速度';
+  document.getElementById('txt-label-duration').textContent = currentLang === 'en' ? 'Run length' : '計算時間';
+  const durNames = currentLang === 'en'
+    ? ['Scenario length (CSV to its end)', '1 hour', '2 hours', '3 hours', '4 hours']
+    : ['シナリオの長さ（CSVは最後まで）', '1時間', '2時間', '3時間', '4時間'];
+  [...document.getElementById('select-duration').options].forEach((o, i) => (o.textContent = durNames[i]));
   updateTimelineUi();
   document.getElementById('txt-sec-export').textContent = currentLang === 'en' ? 'Export' : 'データ・動画出力';
 
@@ -604,6 +682,7 @@ function updateLanguageUI() {
   }
 
   labelMgr.setLanguage(currentLang);
+  tileCtl?.updateTexts();
 }
 
 const fmtClock = (sec) => {
@@ -614,6 +693,39 @@ const fmtHms = (sec) => {
   const t = Math.max(0, Math.floor(sec));
   return `${Math.floor(t / 3600)}:${String(Math.floor((t % 3600) / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 };
+
+/** "(計算範囲外・東へ約0.5km)": which way and how far a place lies outside the simulation area. */
+function outsideNote(worldX, worldZ) {
+  const en = currentLang === 'en';
+  const dx = worldX < 0 ? worldX : Math.max(0, worldX - meta.widthM);
+  const dz = worldZ < 0 ? worldZ : Math.max(0, worldZ - meta.heightM);
+  const dir = [dz < 0 ? (en ? 'N' : '北') : dz > 0 ? (en ? 'S' : '南') : '', dx < 0 ? (en ? 'W' : '西') : dx > 0 ? (en ? 'E' : '東') : ''].join('');
+  const km = (Math.hypot(dx, dz) / 1000).toFixed(1);
+  return en ? ` (outside the simulation area, ${km} km ${dir})` : `（計算範囲外・${dir}へ約${km}km）`;
+}
+
+/** Clock columns matching the HUD: elapsed since the run start, and time since the quake for CSV sources. */
+function clockHeader() {
+  const en = currentLang === 'en';
+  return [en ? 'Elapsed (s)' : '経過時間 (秒)', en ? 'Elapsed (mm:ss)' : '経過時間 (分:秒)', ...(activeProfile ? [en ? 'Since EQ (h:mm:ss)' : '地震後 (時:分:秒)'] : [])];
+}
+function clockCols(simTimeSec) {
+  const el = simTimeSec - profileStartSec;
+  return [Math.round(el), fmtClock(el), ...(activeProfile ? [fmtHms(simTimeSec + activeProfile.timeOffset)] : [])];
+}
+
+/** Save rows as UTF-8 (BOM, CRLF) CSV so Excel opens Japanese text correctly. */
+function downloadCsv(name, header, rows) {
+  const cell = (v) => (/[",\r\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v);
+  const text = '\uFEFF' + [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8;' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+const fileStamp = () => new Date().toISOString().slice(0, 19).replace(/:/g, '-');
 
 /** Burned-in caption: scenario, clocks and the main meters at the moment of the frame. */
 function drawVideoOverlay(ctx, w, h) {
@@ -729,6 +841,7 @@ function renderLoop() {
   const now = performance.now();
   const dt = Math.min(0.25, (now - lastTick) / 1000);
   lastTick = now;
+  tileCtl?.tick();
   if (timeline?.frames.length) {
     if (isPlaying) {
       playT += dt * playSpeed;

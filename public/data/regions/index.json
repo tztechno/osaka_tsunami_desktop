@@ -1,27 +1,27 @@
 [
   {
     "name": "osaka_port",
-    "label": "大阪港・市街地ベイエリア（詳細シミュレーション）",
-    "label_en": "Osaka Port & Bay Area (City Detail)",
+    "label": "大阪市全域（詳細シミュレーション）",
+    "label_en": "All of Osaka City (City Detail)",
     "nx": 1600,
-    "ny": 1200,
-    "res": 10,
+    "ny": 1440,
+    "res": 15,
     "crs": "EPSG:6674",
     "originE": -60000,
-    "originN": -143000,
+    "originN": -136000,
     "center": {
-      "lat": 34.656,
-      "lon": 135.432
+      "lat": 34.676,
+      "lon": 135.476
     },
-    "widthM": 16000,
-    "heightM": 12000,
-    "groundMin": -14.999971389770508,
-    "groundMax": 31.81704330444336,
+    "widthM": 24000,
+    "heightM": 21600,
+    "groundMin": -15,
+    "groundMax": 89.89998626708984,
     "aerial": {
-      "width": 1600,
-      "height": 1200
+      "width": 2400,
+      "height": 2160
     },
     "demSource": "GSI DEM5A/DEM10B (land, NoData = sea & rivers) + japan.tif 15 arc-second bathymetry",
-    "built": "2026-10-21T09:58:07.201Z"
+    "built": "2026-10-22T00:30:29.297Z"
   }
 ]

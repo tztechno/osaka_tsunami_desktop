@@ -29,16 +29,18 @@ const demCacheDir = path.join(appRoot, '.cache', 'gsi-dem');
 const REGIONS = [
   {
     name: 'osaka_port',
-    label: '大阪港・市街地ベイエリア（詳細シミュレーション）',
-    label_en: 'Osaka Port & Bay Area (City Detail)',
+    // all of Osaka City (e-Stat ward extents E -59986..-36770, N -156771..-136397) with a few hundred metres to
+    // spare; the west edge stays on Osaka Bay, where the nankai_trough boundary CSVs are sampled
+    label: '大阪市全域（詳細シミュレーション）',
+    label_en: 'All of Osaka City (City Detail)',
     nx: 1600,
-    ny: 1200,
-    res: 10,
-    widthM: 16000,
-    heightM: 12000,
+    ny: 1440,
+    res: 15,
+    widthM: 24000,
+    heightM: 21600,
     originE: -60000,
-    originN: -143000,
-    center: { lat: 34.656, lon: 135.432 },
+    originN: -136000,
+    center: { lat: 34.676, lon: 135.476 },
     aerialZoom: 15,
     coastDepth: -3, // quay walls / dredged river channels
   },
@@ -159,7 +161,7 @@ async function buildRegion(reg) {
     widthM,
     heightM,
     zoom: reg.aerialZoom || 15,
-    maxPx: 2048,
+    maxPx: 2560,
     metersPerPx: 10,
   });
   paintWater(aerialFile, aerialInfo, water, nx, ny);

@@ -30,6 +30,13 @@ async function main() {
     { name: '通天閣', name_en: 'Tsutenkaku Tower', lon: 135.506, lat: 34.652, height: 108 },
     { name: '中之島', name_en: 'Nakanoshima', lon: 135.495, lat: 34.693, height: 80 },
     { name: 'USJ (ユニバーサル・スタジオ)', name_en: 'Universal Studios Japan', lon: 135.432, lat: 34.665, height: 30 },
+    { name: '大阪城', name_en: 'Osaka Castle', lon: 135.5258, lat: 34.6873, height: 55 },
+    { name: '新大阪駅', name_en: 'Shin-Osaka Station', lon: 135.5002, lat: 34.7334, height: 40 },
+    { name: 'あべのハルカス・天王寺', name_en: 'Abeno Harukas / Tennoji', lon: 135.5136, lat: 34.6457, height: 300 },
+    { name: '京橋', name_en: 'Kyobashi', lon: 135.5338, lat: 34.6965, height: 40 },
+    { name: '鶴見緑地', name_en: 'Tsurumi Ryokuchi Park', lon: 135.5760, lat: 34.7090, height: 20 },
+    { name: '長居公園', name_en: 'Nagai Park', lon: 135.5180, lat: 34.6125, height: 20 },
+    { name: '住之江・南港', name_en: 'Suminoe / Nanko', lon: 135.4370, lat: 34.6150, height: 20 },
   ];
 
   const labels = [];
