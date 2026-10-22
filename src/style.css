@@ -541,3 +541,81 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--text-main);
   white-space: pre-line;
 }
+
+/* ---------------------------------------------------------------- title screen (src/title.js), as in nagoya_flood */
+#title { --water: #39c6ff; --amber: #ffb000; --alert: #ff4d5e; --night: #070b14; --ink2: #0e1626; --paper: #e8eef6;
+  position: fixed; inset: 0; z-index: 50; overflow: hidden; color: var(--paper); font-family: 'Outfit', system-ui, 'Hiragino Sans', sans-serif;
+  background: radial-gradient(120% 90% at 40% 70%, #13243d 0%, #0a1222 45%, var(--night) 100%); transition: opacity .8s ease; }
+#title.out { opacity: 0; pointer-events: none; }
+#title .code, #title .cap, #title .status, #title .keys, #title .round, #title .stat span, #title .regions .no { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+#title canvas.floor { position: absolute; left: 50%; top: 40%; width: 140vmax; margin-left: -70vmax; opacity: .8;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 18%); mask-image: linear-gradient(180deg, transparent 0%, #000 18%);
+  transform: perspective(900px) rotateX(58deg); transform-origin: 50% 0; pointer-events: none; }
+#title canvas.city { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+#title .vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(90% 80% at 45% 55%, transparent 40%, rgba(3,6,12,.75) 100%); }
+#title .bar-top { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: linear-gradient(90deg, var(--water), #2a6bff 50%, var(--amber)); box-shadow: 0 0 14px rgba(57,198,255,.6); }
+#title .code { position: absolute; top: 14px; left: clamp(16px, 5vw, 72px); right: clamp(16px, 5vw, 72px); display: flex; justify-content: space-between;
+  font-size: 11px; letter-spacing: .22em; color: var(--water); opacity: .75; z-index: 2; }
+#title .head { position: absolute; left: clamp(16px, 5vw, 72px); top: clamp(44px, 8vh, 110px); max-width: 52vw; z-index: 2; }
+#title .round { color: var(--amber); font-size: 12px; letter-spacing: .3em; }
+#title .round::before { content: ''; display: inline-block; width: 22px; height: 2px; background: var(--water); vertical-align: middle; margin-right: 10px; }
+#title h1 { margin: 10px 0 0; font-weight: 900; line-height: .86; letter-spacing: .02em; text-transform: uppercase; font-size: clamp(36px, 5.6vw, 88px); color: #f4f8ff;
+  text-shadow: 0 0 30px rgba(57,198,255,.25); }
+#title h1 .outline { display: block; color: transparent; -webkit-text-stroke: 2px var(--water); text-shadow: 0 0 24px rgba(57,198,255,.6); }
+#title .tag { margin-top: 16px; font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif; font-size: clamp(16px, 1.8vw, 24px); letter-spacing: .18em; opacity: .92; }
+#title .stats { display: flex; gap: clamp(14px, 2.4vw, 34px); margin-top: clamp(16px, 3vh, 30px); flex-wrap: wrap; }
+#title .stat { padding-left: 10px; border-left: 2px solid var(--water); }
+#title .stat b { display: block; font-size: clamp(20px, 2.4vw, 32px); font-weight: 800; color: #fff; }
+#title .stat b small { font-size: .5em; font-weight: 600; color: var(--amber); margin-left: 3px; }
+#title .stat span { font-size: 10px; letter-spacing: .14em; color: var(--water); opacity: .85; }
+#title .side { position: absolute; right: clamp(16px, 4vw, 60px); top: clamp(48px, 8vh, 96px); bottom: 120px; width: min(380px, 28vw);
+  display: flex; flex-direction: column; gap: 18px; z-index: 2; overflow: hidden; }
+#title .cap { font-size: 10px; letter-spacing: .26em; color: var(--water); opacity: .85; margin-bottom: 8px; }
+#title canvas.map { display: block; width: auto; max-width: 100%; max-height: 28vh; }
+#title .regions ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+#title .regions li { display: grid; grid-template-columns: 26px 1fr; gap: 1px 10px; padding: 4px 10px; cursor: pointer;
+  background: linear-gradient(90deg, rgba(57,198,255,.12), rgba(57,198,255,.02)); border-left: 3px solid var(--water); transition: background .2s; }
+#title .regions li:hover { background: linear-gradient(90deg, rgba(57,198,255,.28), rgba(57,198,255,.05)); }
+#title .regions li.cur { border-left-color: var(--amber); background: linear-gradient(90deg, rgba(255,176,0,.2), rgba(255,176,0,.03)); }
+#title .regions .no { grid-row: span 2; font-weight: 800; font-size: 20px; color: var(--water); align-self: center; }
+#title .regions li.cur .no { color: var(--amber); }
+#title .regions .nm { font-weight: 700; font-size: 13px; letter-spacing: .04em; }
+#title .regions .tx { font-size: 11px; opacity: .7; line-height: 1.3; }
+#title .bottom { position: absolute; left: clamp(16px, 5vw, 72px); right: clamp(16px, 5vw, 72px); bottom: 26px; z-index: 3;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; gap: 20px; }
+#title .check ol { list-style: none; margin: 0 0 10px; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; letter-spacing: .04em; }
+#title .check li { display: flex; align-items: center; gap: 6px; opacity: .45; transition: opacity .3s; }
+#title .check li i { width: 12px; height: 12px; border: 1.5px solid var(--water); display: inline-block; position: relative; }
+#title .check li.now { opacity: 1; }
+#title .check li.now i { border-color: var(--amber); animation: tchk .9s linear infinite; }
+@keyframes tchk { 50% { background: rgba(255,176,0,.5); } }
+#title .check li.done { opacity: .95; }
+#title .check li.done i { background: var(--water); }
+#title .check li.done i::after { content: ''; position: absolute; left: 3px; top: 0; width: 3px; height: 7px; border: solid var(--night); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+#title .meter { width: min(440px, 60vw); height: 3px; background: rgba(255,255,255,.12); }
+#title .meter div { height: 100%; width: 0; background: linear-gradient(90deg, var(--water), var(--amber)); transition: width .25s; box-shadow: 0 0 8px var(--water); }
+#title .status { margin-top: 8px; font-size: 11px; letter-spacing: .14em; color: var(--water); min-height: 1.2em; }
+#title .status.err { color: var(--alert); }
+#title button.go { position: relative; padding: 14px 64px 10px; border: 0; border-radius: 3px; cursor: pointer; color: #fff;
+  background: linear-gradient(180deg, #1e8fd6, #0d5ea6); box-shadow: 0 0 0 2px rgba(57,198,255,.85), 0 0 28px rgba(57,198,255,.55); font-family: inherit; }
+#title button.go span { display: block; font-size: 30px; font-weight: 900; letter-spacing: .3em; }
+#title button.go small { display: block; font-size: 10px; letter-spacing: .3em; opacity: .85; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+#title button.go:hover { filter: brightness(1.12); }
+#title .keys { text-align: right; font-size: 11px; letter-spacing: .12em; color: var(--water); opacity: .75; line-height: 2; }
+#title .keys button.lang { background: transparent; color: var(--paper); border: 1px solid rgba(232,238,246,.5); font-size: 11px; padding: 3px 10px; }
+#title.launch canvas.city { transform: scale(1.04); transition: transform 1.2s ease-in; }
+@media (max-width: 900px) {
+  #title .side { display: none; }
+  #title .bottom { grid-template-columns: 1fr; justify-items: center; }
+  #title .keys { text-align: center; }
+}
+#title .flash { position: absolute; inset: 0; background: #dfe9ff; opacity: 0; pointer-events: none; z-index: 1; transition: opacity .05s; }
+
+.header-btns {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+/* Osaka title: the scenario list over the city lights needs a backing */
+#title .mapbox, #title .regions { background: rgba(7,11,20,.7); padding: 10px 12px; border-radius: 4px; }

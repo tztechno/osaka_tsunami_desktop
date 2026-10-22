@@ -12,6 +12,22 @@ import { Timeline } from './timeline.js';
 import { searchPlaces } from './geocode.js';
 import { toLonLat } from './proj.js';
 import { TileController } from './tile/tileController.js';
+import { TitleScreen } from './title.js';
+
+// Title screen: once per browser tab / app launch, or with ?title=1 (the 表紙 button)
+const TITLE_KEY = 'osaka-tsunami-title-seen';
+function wantTitle() {
+  if (new URLSearchParams(location.search).get('title') === '1') return true;
+  try { return !sessionStorage.getItem(TITLE_KEY); } catch { return true; }
+}
+// one line per scenario for the title screen
+const TITLE_SCENARIO_TEXT = {
+  nankai_osaka_trimmed: ['内閣府ケース③ · 大阪湾 最大2.04m（地震後2:10）', 'CAO case 3 · Osaka Bay max 2.04 m (EQ +2:10)'],
+  nankai_osaka_full: ['同じ計算を地震発生から3時間まで', 'The same run, 0-3 h after the quake'],
+  extreme_megathrust: ['沖合4.5m · 防潮堤を越える想定超過の津波', '4.5 m offshore · overtops the seawalls'],
+  ansei_nankai_1854: ['1854年型 · 川を遡る津波（水門全開）', '1854 type · run-up into the rivers (gates open)'],
+  custom: ['波高1〜100m・周期・来襲方向を自由に設定', 'Height 1-100 m, period and direction of your choice'],
+};
 
 let currentLang = 'ja';
 let scene = null;
@@ -42,6 +58,22 @@ let recordAbortController = null;
 
 async function init() {
   console.log('Initializing Osaka Tsunami 3D Simulator...');
+  const title = wantTitle() ? new TitleScreen({
+    lang: () => currentLang,
+    setLang: (lang) => { currentLang = lang; if (scene) updateLanguageUI(); },
+    scenarios: Object.values(TSUNAMI_SCENARIOS).map((sc) => ({
+      id: sc.id, name: sc.name, name_en: sc.name_en || sc.name,
+      text: TITLE_SCENARIO_TEXT[sc.id]?.[0] || '', text_en: TITLE_SCENARIO_TEXT[sc.id]?.[1] || '',
+    })),
+    current: () => activeScenario.id,
+    onScenario: (id) => {
+      document.getElementById('select-scenario').value = id;
+      loadScenario(TSUNAMI_SCENARIOS[id]);
+    },
+    labels: () => labelMgr?.labels || [],
+  }) : null;
+  const step = (f, ja, en) => title?.progress(f, currentLang === 'en' ? en : ja);
+  step(0.02, '計算範囲のデータを読み込み中…', 'Loading the area data…');
 
   // 1. Fetch Region Metadata & Ground
   const metaRes = await fetch('data/regions/osaka_port/meta.json');
@@ -49,6 +81,8 @@ async function init() {
 
   const groundBuf = await (await fetch('data/regions/osaka_port/ground.f32')).arrayBuffer();
   const ground = new Float32Array(groundBuf);
+  title?.setRegion(meta, ground, 'data/regions/osaka_port/aerial.jpg');
+  step(0.25, '地形・建物を読み込み中…', 'Loading terrain and buildings…');
 
   // 1b. Fetch Water Mask (Distinguishes open water from dry land / zero-meter districts)
   let waterMask = null;
@@ -93,6 +127,7 @@ async function init() {
     console.warn('Castle not loaded:', e);
   }
 
+  step(0.5, '周辺地形を読み込み中…', 'Loading the surrounding terrain…');
   // 4b. Surrounding terrain backdrop (osaka.tif + aerial): Osaka plain, Rokko, Ikoma
   try {
     const outerMetaRes = await fetch('data/regions/outer/meta.json');
@@ -108,6 +143,7 @@ async function init() {
     console.warn('Backdrop terrain not loaded:', e);
   }
 
+  step(0.7, '地名ラベルを読み込み中…', 'Loading place labels…');
   // 5. Initialize Labels
   const labelsContainer = document.getElementById('labels-container');
   labelMgr = new LabelManager(labelsContainer, meta);
@@ -117,6 +153,8 @@ async function init() {
   const chartCanvas = document.getElementById('depth-canvas');
   chart = new DepthChart(chartCanvas);
 
+  title?.drawMap(); // the castle and gate markers come from the labels
+  step(0.85, '津波計算エンジンを準備中…', 'Starting the tsunami solver…');
   // 7. Initialize Simulation Client (Web Worker)
   simClient = new SimClient({
     meta,
@@ -153,6 +191,11 @@ async function init() {
   requestAnimationFrame(renderLoop);
 
   updateLanguageUI();
+  title?.ready(() => {
+    try { sessionStorage.setItem(TITLE_KEY, '1'); } catch { /* storage blocked */ }
+    const q = new URLSearchParams(location.search);
+    if (q.has('title')) { q.delete('title'); history.replaceState(null, '', `${location.pathname}${q.toString() ? `?${q}` : ''}`); }
+  });
   console.log('Osaka Tsunami 3D Simulator ready.');
 }
 
@@ -617,6 +660,9 @@ function setupEventListeners(canvas) {
     chart.draw();
   });
 
+  // Back to the title screen (reloads the app: computed results are dropped)
+  document.getElementById('btn-title').addEventListener('click', () => { location.search = '?title=1'; });
+
   // Language switch
   document.getElementById('btn-lang').addEventListener('click', () => {
     currentLang = currentLang === 'ja' ? 'en' : 'ja';
@@ -654,6 +700,8 @@ function handleCsvFile(file) {
 function updateLanguageUI() {
   const dict = I18N[currentLang];
   document.getElementById('btn-lang').textContent = currentLang === 'ja' ? 'English' : '日本語';
+  document.getElementById('btn-title').textContent = currentLang === 'ja' ? '表紙' : 'Title';
+  document.getElementById('btn-title').title = currentLang === 'ja' ? '表紙を表示（計算結果は消えます）' : 'Show the title screen (results are cleared)';
   document.getElementById('txt-app-title').textContent = dict.appTitle;
   document.getElementById('txt-app-subtitle').textContent = dict.appSubtitle;
   document.getElementById('txt-sec-scenario').textContent = dict.scenario;

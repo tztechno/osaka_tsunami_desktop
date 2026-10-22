@@ -74,8 +74,8 @@ export const TSUNAMI_SCENARIOS = {
     durationMin: 45,
     hasPreDrawdown: false,
     eqTimeOffsetSec: 0,
-    description: 'スライダーで沖合波高（1m〜30m）、周期、来襲方向を自由に変更してシミュレーションを実行できます。',
-    description_en: 'Freely adjust offshore wave height (1-30m), period, and incoming bearing.',
+    description: 'スライダーで沖合波高（1m〜100m）、周期、来襲方向を自由に変更してシミュレーションを実行できます。',
+    description_en: 'Freely adjust offshore wave height (1-100m), period, and incoming bearing.',
     recommendedSeawall: 'sluice_closed',
   },
 };
