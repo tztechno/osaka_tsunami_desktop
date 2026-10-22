@@ -7,13 +7,11 @@ on:
         description: 'Release tag (defaults to v<version> in package.json)'
         required: false
         default: ''
+  # Only on a version tag (e.g. git tag v1.1.7 && git push origin v1.1.7) or by hand from the Actions tab:
+  # pushes to main (code, data, Cloudflare deploys) do not rebuild the Windows installer
   push:
-    branches:
-      - main
     tags:
       - 'v*'
-    paths-ignore:
-      - '**.md'
 
 jobs:
   build-windows:

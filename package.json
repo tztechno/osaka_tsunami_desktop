@@ -7,9 +7,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:web": "vite build",
     "tauri": "tauri",
     "dev:app": "tauri dev",
-    "build:app": "tauri build"
+    "build:app": "tauri build",
+    "deploy": "npm run build:web && wrangler deploy",
+    "deploy:dry": "npm run build:web && wrangler deploy --dry-run"
   },
   "dependencies": {
     "geotiff": "^2.1.3",
@@ -21,6 +24,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "wrangler": "^4.151.3"
   }
 }
