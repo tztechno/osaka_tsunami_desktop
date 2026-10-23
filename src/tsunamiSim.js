@@ -91,7 +91,6 @@ export class TsunamiSimulator {
       waveStatus: 'approaching',
       maxRunup: 0,
       inundatedAreaHa: 0,
-      inundatedBuildings: 0,
       isOvertopping: false,
       overtoppingCount: 0,
     };
@@ -514,7 +513,7 @@ export class TsunamiSimulator {
   }
 
   updateStats() {
-    const { N, ground, depth, buildings } = this;
+    const { N, ground, depth } = this;
     let inundatedLandCells = 0;
     let maxRunup = 0;
 
@@ -526,10 +525,6 @@ export class TsunamiSimulator {
       }
     }
 
-    // Inundated building count
-    let inundatedBldgs = 0;
-    for (let b = 0; b < buildings.length; b++) if (this.buildingFlooded(b)) inundatedBldgs++;
-
     const cellAreaM2 = this.res * this.res;
     const areaHa = (inundatedLandCells * cellAreaM2) / 10000;
 
@@ -537,7 +532,6 @@ export class TsunamiSimulator {
     this.stats.simTimeMin = this.simTimeSec / 60;
     this.stats.maxRunup = maxRunup;
     this.stats.inundatedAreaHa = areaHa;
-    this.stats.inundatedBuildings = inundatedBldgs;
   }
 
   logHistory() {
@@ -546,7 +540,6 @@ export class TsunamiSimulator {
       waveHeight: +this.stats.offshoreWaveHeight.toFixed(2),
       maxRunup: +this.stats.maxRunup.toFixed(2),
       areaHa: +this.stats.inundatedAreaHa.toFixed(1),
-      bldgs: this.stats.inundatedBuildings,
     });
   }
 

@@ -126,7 +126,7 @@ export class SimClient {
     return this.request({ type: 'advance', seconds });
   }
 
-  /** Area-wide stats logged every 10 s of the computed run: [{ timeSec, waveHeight, maxRunup, areaHa, bldgs }] */
+  /** Area-wide stats logged every 10 s of the computed run: [{ timeSec, waveHeight, maxRunup, areaHa }] */
   history() {
     return this.request({ type: 'history' });
   }

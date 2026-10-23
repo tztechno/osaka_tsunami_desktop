@@ -305,7 +305,6 @@ function updateHud(stats, simTimeSec) {
   document.getElementById('hud-offshore-wave').textContent = stats.offshoreWaveHeight.toFixed(1);
   document.getElementById('hud-runup').textContent = stats.maxRunup.toFixed(1);
   document.getElementById('hud-area').textContent = stats.inundatedAreaHa.toFixed(1);
-  document.getElementById('hud-bldgs').textContent = stats.inundatedBuildings.toLocaleString();
 }
 
 /**
@@ -548,9 +547,9 @@ function setupEventListeners(canvas) {
     if (!rows?.length) return;
     const en = currentLang === 'en';
     const header = [...clockHeader(), en ? 'Offshore wave (m)' : '沖合津波高 (m)', en ? 'Max run-up (m)' : '最大遡上高 (m)',
-      en ? 'Inundated area (ha)' : '浸水面積 (ha)', en ? 'Flooded buildings' : '浸水建物 (棟)'];
+      en ? 'Inundated area (ha)' : '浸水面積 (ha)'];
     const body = rows.filter((r) => r.timeSec >= profileStartSec)
-      .map((r) => [...clockCols(r.timeSec), r.waveHeight, r.maxRunup, r.areaHa, r.bldgs]);
+      .map((r) => [...clockCols(r.timeSec), r.waveHeight, r.maxRunup, r.areaHa]);
     downloadCsv(`osaka_tsunami_result_${fileStamp()}.csv`, header, body);
   });
 
@@ -796,7 +795,6 @@ function drawVideoOverlay(ctx, w, h) {
     [en ? 'Offshore wave' : '沖合津波高', `${s.offshoreWaveHeight.toFixed(1)} m`],
     [en ? 'Max run-up' : '最大遡上高', `${s.maxRunup.toFixed(1)} m`],
     [en ? 'Inundated area' : '浸水面積', `${s.inundatedAreaHa.toFixed(1)} ha`],
-    [en ? 'Flooded buildings' : '浸水建物', `${s.inundatedBuildings.toLocaleString()}`],
   ];
   const pad = 14, lh = 24, bw = 330, bh = pad * 2 + 22 + 18 + lines.length * lh + (scene.waterExaggeration > 1 ? 18 : 0);
   ctx.save();

@@ -54,7 +54,7 @@ for (let m = 5; m <= +minutes; m += 5) {
   const s = sim.stats;
   console.log(
     `t=${m}min offshore=${s.offshoreWaveHeight.toFixed(2)}m area=${s.inundatedAreaHa.toFixed(1)}ha ` +
-      `(below T.P.0: ${((zeroM * res * res) / 1e4).toFixed(1)}ha) bldgs=${s.inundatedBuildings} overtop=${s.overtoppingCount} ` +
+      `(below T.P.0: ${((zeroM * res * res) / 1e4).toFixed(1)}ha) overtop=${s.overtoppingCount} ` +
       `[${((Date.now() - t0) / 1000).toFixed(0)}s]`
   );
 }
