@@ -10,7 +10,7 @@ import { I18N } from './i18n.js';
 import { recordVideo } from './recorder.js';
 import { Timeline } from './timeline.js';
 import { searchPlaces } from './geocode.js';
-import { toLonLat } from './proj.js';
+import { toLonLat, toPlane } from './proj.js';
 import { TileController } from './tile/tileController.js';
 import { TitleScreen } from './title.js';
 
@@ -125,6 +125,11 @@ async function init() {
     if (castleSpec) scene.addCastle(castleSpec);
   } catch (e) {
     console.warn('Castle not loaded:', e);
+  }
+  // Tsutenkaku (not in PLATEAU's buildings; modelled from its published figures)
+  {
+    const [e, n] = toPlane(135.506306, 34.652499);
+    scene.addTsutenkaku(e - meta.originE, meta.originN - n);
   }
 
   step(0.5, '周辺地形を読み込み中…', 'Loading the surrounding terrain…');

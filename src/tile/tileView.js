@@ -136,7 +136,7 @@ export class TileView {
       if (n < 3) continue;
       let cx = 0, cz = 0;
       for (let i = s; i < e; i++) { cx += B.verts[i * 2]; cz += B.verts[i * 2 + 1]; }
-      if (this.scene.onCastle(offX + cx / n, offZ + cz / n)) continue; // drawn by the detailed castle model
+      if (this.scene.onLandmarkModel(offX + cx / n, offZ + cz / n)) continue; // drawn by a detailed model (castle, tower)
       const base = B.base(b), top = Math.max(base + 3, B.top(b));
       const pts = [];
       for (let i = s; i < e; i++) pts.push(new THREE.Vector2(B.verts[i * 2], B.verts[i * 2 + 1]));

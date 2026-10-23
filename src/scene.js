@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildCastle } from './castle.js';
+import { buildTsutenkaku } from './tsutenkaku.js';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
@@ -636,19 +637,31 @@ export class TsunamiScene {
    */
   addCastle(spec) {
     const k = spec.keep;
-    const castle = buildCastle();
-    const x = k.E - this.meta.originE, z = this.meta.originN - k.N; // region-local
-    castle.position.set(x - this.W / 2, k.base, z - this.H / 2);
-    castle.rotation.y = (k.rot * Math.PI) / 180; // counter-clockwise from east in plan
-    this.scene.add(castle);
-    this.castle = { object: castle, x, z, radius: castle.userData.radius };
+    this.addLandmarkModel(buildCastle(), k.E - this.meta.originE, this.meta.originN - k.N, k.base, k.rot);
+  }
+
+  /** Tsutenkaku at region-local (x, z), standing on the ground there. */
+  addTsutenkaku(x, z, rotDeg = 0) {
+    this.addLandmarkModel(buildTsutenkaku(), x, z, this.getGroundAt(x, z), rotDeg);
+  }
+
+  /**
+   * A detailed landmark model at region-local (x, z), its foot at height y, turned rotDeg counter-clockwise from
+   * east in plan; the plain building blocks within its radius are no longer drawn.
+   */
+  addLandmarkModel(object, x, z, y, rotDeg) {
+    object.position.set(x - this.W / 2, y, z - this.H / 2);
+    object.rotation.y = (rotDeg * Math.PI) / 180;
+    this.scene.add(object);
+    const model = { object, x, z, radius: object.userData.radius };
+    (this.landmarkModels ||= []).push(model);
     const mesh = this.buildingsMesh;
     if (mesh) {
       mesh.userData.orig ||= mesh.instanceMatrix.array.slice();
       for (let i = 0; i < mesh.count; i++) {
         const o = mesh.userData.orig;
         const bx = o[i * 16 + 12] + this.W / 2, bz = o[i * 16 + 14] + this.H / 2;
-        if (Math.hypot(bx - x, bz - z) > this.castle.radius) continue;
+        if (Math.hypot(bx - x, bz - z) > model.radius) continue;
         o.fill(0, i * 16, i * 16 + 16);
         mesh.instanceMatrix.array.fill(0, i * 16, i * 16 + 16);
       }
@@ -656,9 +669,9 @@ export class TsunamiScene {
     }
   }
 
-  /** Is region-local (x, z) on the detailed castle's stone base (where it replaces the building blocks)? */
-  onCastle(x, z) {
-    return !!this.castle && Math.hypot(x - this.castle.x, z - this.castle.z) <= this.castle.radius;
+  /** Is region-local (x, z) under a detailed landmark model (where it replaces the building blocks)? */
+  onLandmarkModel(x, z) {
+    return (this.landmarkModels || []).some((m) => Math.hypot(x - m.x, z - m.z) <= m.radius);
   }
 
   /**

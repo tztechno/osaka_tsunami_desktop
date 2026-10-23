@@ -27,7 +27,7 @@ async function main() {
     { name: '京セラドーム大阪', name_en: 'Kyocera Dome Osaka', lon: 135.476, lat: 34.669, height: 50 },
     { name: 'JR大阪駅・梅田', name_en: 'Osaka Station / Umeda', lon: 135.498, lat: 34.702, height: 150 },
     { name: '難波・道頓堀', name_en: 'Namba / Dotonbori', lon: 135.501, lat: 34.666, height: 50 },
-    { name: '通天閣', name_en: 'Tsutenkaku Tower', lon: 135.506, lat: 34.652, height: 108 },
+    { name: '通天閣', name_en: 'Tsutenkaku Tower', lon: 135.506306, lat: 34.652499, height: 108 },
     { name: '中之島', name_en: 'Nakanoshima', lon: 135.495, lat: 34.693, height: 80 },
     { name: 'USJ (ユニバーサル・スタジオ)', name_en: 'Universal Studios Japan', lon: 135.432, lat: 34.665, height: 30 },
     { name: '大阪城', name_en: 'Osaka Castle', lon: 135.5258, lat: 34.6873, height: 55 },
