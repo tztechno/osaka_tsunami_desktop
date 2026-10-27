@@ -14,6 +14,8 @@ export class WaveProfile {
     name = 'Custom Wave Source',
     filename = '',
     location = '',
+    lon = null,
+    lat = null,
     mode = '',
     maxSurge = 0,
     firstArrival = 0,
@@ -30,6 +32,8 @@ export class WaveProfile {
     this.name = name;
     this.filename = filename;
     this.location = location;
+    this.lon = lon; // sampling point from the "# Location: ... (Lon: x, Lat: y)" header, null if absent
+    this.lat = lat;
     this.mode = mode;
     this.maxSurge = maxSurge;
     this.firstArrival = firstArrival;
@@ -146,6 +150,8 @@ export class WaveProfile {
       name: this.name,
       filename: this.filename,
       location: this.location,
+      lon: this.lon,
+      lat: this.lat,
       mode: this.mode,
       maxSurge: this.maxSurge,
       firstArrival: this.firstArrival,
@@ -177,6 +183,8 @@ export class WaveProfile {
 
     const lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
     let location = '';
+    let lon = null;
+    let lat = null;
     let mode = '';
     let maxSurgeMeta = null;
     let firstArrivalMeta = null;
@@ -192,7 +200,15 @@ export class WaveProfile {
       if (line.startsWith('#')) {
         const comment = line.slice(1).trim();
         const mLoc = comment.match(/Location:\s*(.+)$/i);
-        if (mLoc) location = mLoc[1].trim();
+        if (mLoc) {
+          location = mLoc[1].trim();
+          const mLon = location.match(/Lon:\s*([+-]?[0-9.]+)/i);
+          const mLat = location.match(/Lat:\s*([+-]?[0-9.]+)/i);
+          if (mLon && mLat) {
+            lon = parseFloat(mLon[1]);
+            lat = parseFloat(mLat[1]);
+          }
+        }
 
         const mMode = comment.match(/Mode:\s*(.+)$/i);
         if (mMode) mode = mMode[1].trim();
@@ -311,6 +327,8 @@ export class WaveProfile {
       name,
       filename,
       location,
+      lon,
+      lat,
       mode,
       maxSurge: maxSurgeMeta != null ? maxSurgeMeta : Math.max(...elevations),
       firstArrival: firstArrivalMeta != null ? firstArrivalMeta : 0,

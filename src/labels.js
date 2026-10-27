@@ -9,6 +9,20 @@ export class LabelManager {
     this.elements = [];
     this.visible = true;
     this.lang = 'ja';
+    // Wave-source label: next to the place labels but shown even when they are switched off
+    this.source = null;
+    this.sourceEl = document.createElement('div');
+    this.sourceEl.className = 'map-3d-label wave-source-label';
+    this.sourceEl.style.display = 'none';
+    container.parentElement.appendChild(this.sourceEl);
+  }
+
+  /** Wave-source label at scene position pos (THREE.Vector3); null hides it. */
+  setSource(pos, text = '') {
+    this.source = pos;
+    this.sourceEl.innerHTML = `<span class="label-dot"></span><span class="label-text"></span>`;
+    this.sourceEl.querySelector('.label-text').textContent = text;
+    if (!pos) this.sourceEl.style.display = 'none';
   }
 
   async loadLabels() {
@@ -50,6 +64,7 @@ export class LabelManager {
   }
 
   update(camera, width, height) {
+    if (this.source) this.place(this.sourceEl, this.source, camera, width, height);
     if (!this.visible) {
       this.container.style.display = 'none';
       return;
@@ -78,6 +93,23 @@ export class LabelManager {
         item.el.style.display = 'flex';
         item.el.style.transform = `translate(-50%, -100%) translate(${x}px, ${y}px)`;
       }
+    }
+  }
+
+  place(el, pos, camera, width, height) {
+    const v = pos.clone();
+    if (v.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3())) < 0) {
+      el.style.display = 'none';
+      return;
+    }
+    v.project(camera);
+    const x = (v.x * 0.5 + 0.5) * width;
+    const y = (-(v.y * 0.5) + 0.5) * height;
+    if (v.z > 1.0 || x < -50 || x > width + 50 || y < -50 || y > height + 50) {
+      el.style.display = 'none';
+    } else {
+      el.style.display = 'flex';
+      el.style.transform = `translate(-50%, -100%) translate(${x}px, ${y}px)`;
     }
   }
 

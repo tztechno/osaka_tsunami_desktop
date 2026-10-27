@@ -40,6 +40,8 @@ let activeScenario = TSUNAMI_SCENARIOS.nankai_osaka_trimmed;
 // CSV wave source in use (null for parametric waves): the run starts at its lead-in time and the
 // clock shows time since that start, plus time since the earthquake from the CSV's offset
 let activeProfile = null;
+let csvFile = null; // last dropped CSV { profile, name }, re-selectable in the scenario list
+let waveSourceOutside = null; // CSV profile whose sampling point lies outside this region
 let profileStartSec = 0;
 let isPlaying = false;
 // Computed-ahead playback: the run is computed once, then played / scrubbed from keyframes
@@ -372,6 +374,34 @@ function updateTimelineUi() {
 function setActiveProfile(profile) {
   activeProfile = profile;
   profileStartSec = profile ? profile.leadInSec() : 0;
+  updateWaveSource();
+}
+
+/**
+ * Wave-source marker on the map: for CSV sources at the CSV's sampling point with its incoming
+ * direction, otherwise the default bay-mouth point with the scenario / custom direction.
+ */
+function updateWaveSource() {
+  if (!scene || !meta) return;
+  const en = currentLang === 'en';
+  const p = activeProfile;
+  let worldX, worldZ, inside = true;
+  if (p && p.lon != null && p.lat != null) {
+    const [e, n] = toPlane(p.lon, p.lat);
+    worldX = e - meta.originE;
+    worldZ = meta.originN - n;
+    const tol = 1000; // nankai_trough samples on the region's edge, a little outside is still that edge
+    inside = worldX > -tol && worldX < scene.W + tol && worldZ > -tol && worldZ < scene.H + tol;
+  }
+  const directionDeg = p ? p.dominantDirectionDeg : activeScenario.id === 'custom'
+    ? parseFloat(document.getElementById('slider-custom-dir').value) : (activeScenario.directionDeg ?? 235);
+  scene.setupSourceZone({ ...(worldX != null && inside ? { worldX, worldZ } : {}), directionDeg });
+  const g = scene.sourceZoneGroup.position;
+  const text = p
+    ? `${en ? 'Wave source (CSV)' : '波源 (CSV)'}: ${(p.location || p.filename).replace(/\s*\(Lon:[^)]*\)/i, '')} · ${en ? 'max' : '最大'} ${p.peakHeight.toFixed(2)} m`
+    : `${en ? 'Wave source' : '波源'}: ${(en ? activeScenario.name_en : activeScenario.name) || ''}`;
+  labelMgr?.setSource(new THREE.Vector3(g.x, g.y + 200, g.z), text);
+  waveSourceOutside = p && p.lon != null && !inside ? p : null;
 }
 
 async function loadScenario(sc) {
@@ -417,7 +447,12 @@ function showCsvInfo(profile) {
   const endInfo = currentLang === 'en'
     ? ` / CSV ends at EQ +${endEq}${late ? ' — the highest water is at its very end; the CSV may stop before the wave has passed (use a longer nankai_trough output)' : ''}`
     : ` / CSVの終わり: 地震後 ${endEq}${late ? '（最大水位がCSVの終わり際です。波が通り過ぎる前にCSVが終わっている可能性があります。nankai_trough で長めに出力してください）' : ''}`;
-  el.textContent = `✓ ${profile.name} (最大波高 ${profile.peakHeight.toFixed(2)}m, 継続 ${(profile.durationSec / 60).toFixed(0)}分) — ${startInfo}${endInfo}`;
+  const outside = waveSourceOutside === profile
+    ? (currentLang === 'en'
+      ? ` / ⚠ the CSV point (E${profile.lon}, N${profile.lat}) is outside this region; its waveform is fed in at the Osaka Bay edge`
+      : ` / ⚠ CSVの地点 (E${profile.lon}, N${profile.lat}) はこの計算領域の外です。波形は大阪湾側の境界から入力されます`)
+    : '';
+  el.textContent = `✓ ${profile.name} (最大波高 ${profile.peakHeight.toFixed(2)}m, 継続 ${(profile.durationSec / 60).toFixed(0)}分) — ${startInfo}${endInfo}${outside}`;
 }
 
 function hideCsvInfo() {
@@ -456,6 +491,7 @@ function setupEventListeners(canvas) {
   document.getElementById('select-scenario').addEventListener('change', (e) => {
     const sc = TSUNAMI_SCENARIOS[e.target.value];
     if (sc) loadScenario(sc);
+    else if (e.target.value === 'csv_file' && csvFile) applyCsvProfile(csvFile.profile, csvFile.name);
   });
 
   // Seawall / Sluice Gate select
@@ -502,6 +538,7 @@ function setupEventListeners(canvas) {
     setActiveProfile(null);
     invalidateTimeline();
     simClient.setCustomWave({ height, period, direction });
+    updateWaveSource();
     simClient.reset();
   };
 
@@ -680,17 +717,45 @@ function setupEventListeners(canvas) {
   scene.resize(window.innerWidth, window.innerHeight);
 }
 
+/** A dropped CSV becomes the selected scenario ("CSV: <file>"), with its own description. */
+function selectCsvScenario(profile, filename) {
+  const sel = document.getElementById('select-scenario');
+  let opt = sel.querySelector('option[value="csv_file"]');
+  if (!opt) {
+    opt = document.createElement('option');
+    opt.value = 'csv_file';
+    sel.appendChild(opt);
+  }
+  opt.textContent = `CSV: ${filename}`;
+  sel.value = 'csv_file';
+  const fmt = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`;
+  const where = profile.location || filename;
+  activeScenario = {
+    id: 'csv_file',
+    name: `CSV: ${filename}`,
+    name_en: `CSV: ${filename}`,
+    description: `読み込んだCSV波源（${where}）。最大 ${profile.peakHeight.toFixed(2)}m（地震後 ${fmt(profile.peakTimeSec + profile.timeOffset)}）。`,
+    description_en: `Loaded CSV wave source (${where}). Max ${profile.peakHeight.toFixed(2)} m (EQ +${fmt(profile.peakTimeSec + profile.timeOffset)}).`,
+  };
+  document.getElementById('scenario-desc').textContent = currentLang === 'en' ? activeScenario.description_en : activeScenario.description;
+  document.getElementById('sec-custom-wave').style.display = 'none';
+}
+
+function applyCsvProfile(profile, filename) {
+  csvFile = { profile, name: filename };
+  invalidateTimeline();
+  selectCsvScenario(profile, filename);
+  setActiveProfile(profile);
+  simClient.setWaveProfile(profile);
+  showCsvInfo(profile);
+}
+
 function handleCsvFile(file) {
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
       const text = e.target.result;
-      const profile = WaveProfile.parse(text, file.name);
-      invalidateTimeline();
-      setActiveProfile(profile);
-      simClient.setWaveProfile(profile);
-      showCsvInfo(profile);
-      document.getElementById('select-scenario').value = 'custom';
+      applyCsvProfile(WaveProfile.parse(text, file.name), file.name);
     } catch (err) {
       // shown in the panel: the desktop app's WebView does not show alert() dialogs
       const el = document.getElementById('csv-info');
@@ -734,6 +799,8 @@ function updateLanguageUI() {
   }
 
   labelMgr.setLanguage(currentLang);
+  updateWaveSource();
+  if (activeProfile) showCsvInfo(activeProfile);
   tileCtl?.updateTexts();
 }
 

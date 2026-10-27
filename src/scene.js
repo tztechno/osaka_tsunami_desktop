@@ -471,36 +471,38 @@ export class TsunamiScene {
     this.scene.add(this.waterMesh);
   }
 
-  setupSourceZone() {
+  /**
+   * Wave-source marker: a buoy at the source's sampling point (region-local worldX / worldZ, clamped
+   * into the region; default the south-west corner of the bay) and an arrow along the direction the
+   * wave travels (directionDeg = bearing it comes from). Drawn at a constant on-screen size.
+   */
+  setupSourceZone({ worldX = 1500, worldZ = this.H - 1500, directionDeg = 235 } = {}) {
     if (this.sourceZoneGroup) {
       this.scene.remove(this.sourceZoneGroup);
     }
 
     const group = new THREE.Group();
-    const posX = -this.W / 2 + 1500;
-    const posZ = this.H / 2 - 1500;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.2, 1.6, 48).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xff1744, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthTest: false })
+    );
+    ring.renderOrder = 9;
+    group.add(ring);
 
-    const boxGeom = new THREE.BoxGeometry(2500, 30, 2500);
-    const boxMat = new THREE.MeshBasicMaterial({
-      color: 0xff1744,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.7,
-    });
-    const box = new THREE.Mesh(boxGeom, boxMat);
-    box.position.set(posX, 15, posZ);
-    group.add(box);
-
-    const arrowDir = new THREE.Vector3(1, 0, -1).normalize();
-    const arrow = new THREE.ArrowHelper(arrowDir, new THREE.Vector3(posX - 800, 50, posZ + 800), 1600, 0x00e5ff, 400, 150);
+    const th = (directionDeg * Math.PI) / 180;
+    const arrowDir = new THREE.Vector3(-Math.sin(th), 0, Math.cos(th)); // +x east, +z south
+    const arrow = new THREE.ArrowHelper(arrowDir, new THREE.Vector3(0, 0.5, 0), 4, 0x00e5ff, 1.2, 0.6);
     group.add(arrow);
 
-    const buoyGeom = new THREE.CylinderGeometry(25, 35, 30, 16);
-    const buoyMat = new THREE.MeshStandardMaterial({ color: 0xff9100, roughness: 0.3 });
-    const buoy = new THREE.Mesh(buoyGeom, buoyMat);
-    buoy.position.set(posX, 15, posZ);
-    group.add(buoy);
+    const buoyMat = new THREE.MeshStandardMaterial({ color: 0xff9100, roughness: 0.3, emissive: 0x552200 });
+    const buoy = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 0.6, 16).translate(0, 0.3, 0), buoyMat);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.6, 8).translate(0, 1.4, 0), buoyMat);
+    group.add(buoy, mast);
 
+    const m = Math.min(500, this.W / 4);
+    const x = Math.max(m, Math.min(this.W - m, worldX)) - this.W / 2;
+    const z = Math.max(m, Math.min(this.H - m, worldZ)) - this.H / 2;
+    group.position.set(x, 2, z);
     this.sourceZoneGroup = group;
     this.scene.add(group);
   }
@@ -836,6 +838,9 @@ export class TsunamiScene {
     }
     this.controls.update();
     this.clampCamera();
+    if (this.sourceZoneGroup) {
+      this.sourceZoneGroup.scale.setScalar(Math.max(20, this.camera.position.distanceTo(this.sourceZoneGroup.position) * 0.02));
+    }
     if (this.pinMesh?.visible) {
       this.pinMesh.scale.setScalar(Math.max(4, this.camera.position.distanceTo(this.pinMesh.position) * 0.03));
     }
