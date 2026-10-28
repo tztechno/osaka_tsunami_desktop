@@ -11,6 +11,7 @@ import { recordVideo } from './recorder.js';
 import { Timeline } from './timeline.js';
 import { searchPlaces } from './geocode.js';
 import { toLonLat, toPlane } from './proj.js';
+import { seaDepthAt } from './bathyLookup.js';
 import { TileController } from './tile/tileController.js';
 import { TitleScreen } from './title.js';
 
@@ -43,6 +44,11 @@ let activeProfile = null;
 let csvFile = null; // last dropped CSV { profile, name }, re-selectable in the scenario list
 let waveSourceOutside = null; // CSV profile whose sampling point lies outside this region
 let profileStartSec = 0;
+// Multiplier on the CSV waveform, on top of the automatic shoaling correction (kept across scenarios)
+let csvScale = 1;
+// Width of the wave source along the crest (m), centred on the source marker. The source is where a wave from
+// a distant earthquake enters the region, not the epicentre; the wave height is uniform across it.
+let sourceWidthM = 100000;
 let isPlaying = false;
 // Computed-ahead playback: the run is computed once, then played / scrubbed from keyframes
 // (every 30 s; every 60 s for runs over 90 min, which keeps a 4 h run's keyframes near 400 MB)
@@ -371,6 +377,41 @@ function updateTimelineUi() {
   else status.textContent = en ? 'not computed' : '未計算';
 }
 
+/** Bearing the wave comes from for the active CSV / custom wave / scenario. */
+function waveDirection() {
+  const p = activeProfile;
+  return p ? p.dominantDirectionDeg : activeScenario.id === 'custom'
+    ? parseFloat(document.getElementById('slider-custom-dir').value) : (activeScenario.directionDeg ?? 235);
+}
+
+/** Depth at the CSV point (japan.tif) for the shoaling correction to the wave-input zone. */
+async function prepareProfile(profile) {
+  if (profile.sourceDepth == null && profile.lon != null) profile.sourceDepth = await seaDepthAt(profile.lon, profile.lat);
+  return profile;
+}
+
+/**
+ * Send the CSV multiplier and the source width / centre (the marker) to the simulation; the boundary level is
+ * CSV × shoaling correction × multiplier. Shows the correction and draws the width band.
+ */
+async function applyWaveAdjust() {
+  if (!simClient || !scene?.sourceZoneGroup) return;
+  const g = scene.sourceZoneGroup.position;
+  const r = await simClient.setWaveAdjust({
+    profileScale: activeProfile ? csvScale : 1,
+    sourceWidthM,
+    sourceCenter: { x: g.x + scene.W / 2, z: g.z + scene.H / 2 },
+  });
+  scene.setSourceWidthBand(sourceWidthM, waveDirection());
+  const en = currentLang === 'en';
+  document.getElementById('csv-adjust').style.display = activeProfile ? 'flex' : 'none';
+  if (activeProfile) {
+    document.getElementById('val-csv-shoal').textContent = activeProfile.sourceDepth > 0
+      ? `×${r.shoalFactor.toFixed(2)} (${activeProfile.sourceDepth.toFixed(0)}m→${r.bcDepth.toFixed(0)}m)`
+      : en ? '×1.00 (depth at CSV point unknown)' : '×1.00 (CSV地点の水深不明)';
+  }
+}
+
 function setActiveProfile(profile) {
   activeProfile = profile;
   profileStartSec = profile ? profile.leadInSec() : 0;
@@ -393,8 +434,7 @@ function updateWaveSource() {
     const tol = 1000; // nankai_trough samples on the region's edge, a little outside is still that edge
     inside = worldX > -tol && worldX < scene.W + tol && worldZ > -tol && worldZ < scene.H + tol;
   }
-  const directionDeg = p ? p.dominantDirectionDeg : activeScenario.id === 'custom'
-    ? parseFloat(document.getElementById('slider-custom-dir').value) : (activeScenario.directionDeg ?? 235);
+  const directionDeg = waveDirection();
   scene.setupSourceZone({ ...(worldX != null && inside ? { worldX, worldZ } : {}), directionDeg });
   const g = scene.sourceZoneGroup.position;
   const text = p
@@ -412,7 +452,7 @@ async function loadScenario(sc) {
   if (sc.isCsvWave && sc.csvUrl) {
     try {
       const csvText = await (await fetch(sc.csvUrl)).text();
-      const profile = WaveProfile.parse(csvText, sc.name);
+      const profile = await prepareProfile(WaveProfile.parse(csvText, sc.name));
       setActiveProfile(profile);
       simClient.setWaveProfile(profile);
       showCsvInfo(profile);
@@ -430,6 +470,7 @@ async function loadScenario(sc) {
   // Toggle custom controls
   const isCustom = sc.id === 'custom';
   document.getElementById('sec-custom-wave').style.display = isCustom ? 'flex' : 'none';
+  await applyWaveAdjust();
 }
 
 function showCsvInfo(profile) {
@@ -540,7 +581,24 @@ function setupEventListeners(canvas) {
     simClient.setCustomWave({ height, period, direction });
     updateWaveSource();
     simClient.reset();
+    applyWaveAdjust();
   };
+
+  // Source width (all scenarios) and CSV multiplier: both rebuild the wave input and restart the run
+  document.getElementById('slider-source-width').addEventListener('input', (e) => {
+    sourceWidthM = parseFloat(e.target.value) * 1000;
+    document.getElementById('val-source-width').textContent = `${(sourceWidthM / 1000).toFixed(1)} km`;
+    invalidateTimeline();
+    applyWaveAdjust();
+  });
+  document.getElementById('input-csv-scale').addEventListener('change', (e) => {
+    const k = parseFloat(e.target.value);
+    if (!Number.isFinite(k)) return;
+    csvScale = Math.min(10, Math.max(0.1, k));
+    e.target.value = csvScale.toFixed(2);
+    invalidateTimeline();
+    applyWaveAdjust();
+  });
 
   sliderCustomH.addEventListener('input', updateCustomWave);
   sliderCustomPeriod.addEventListener('input', updateCustomWave);
@@ -741,13 +799,15 @@ function selectCsvScenario(profile, filename) {
   document.getElementById('sec-custom-wave').style.display = 'none';
 }
 
-function applyCsvProfile(profile, filename) {
+async function applyCsvProfile(profile, filename) {
+  await prepareProfile(profile);
   csvFile = { profile, name: filename };
   invalidateTimeline();
   selectCsvScenario(profile, filename);
   setActiveProfile(profile);
   simClient.setWaveProfile(profile);
   showCsvInfo(profile);
+  await applyWaveAdjust();
 }
 
 function handleCsvFile(file) {
@@ -798,6 +858,9 @@ function updateLanguageUI() {
     document.getElementById(`btn-view-${view}`).textContent = label;
   }
 
+  document.getElementById('txt-source-width').textContent = currentLang === 'en' ? 'Source width (along the crest)' : '波源の幅 (波の峰に沿った長さ)';
+  document.getElementById('txt-csv-shoal').textContent = currentLang === 'en' ? "Shoaling (Green's law)" : '浅水補正 (グリーンの法則)';
+  document.getElementById('txt-csv-scale').textContent = currentLang === 'en' ? 'CSV wave multiplier' : 'CSV波形の倍率';
   labelMgr.setLanguage(currentLang);
   updateWaveSource();
   if (activeProfile) showCsvInfo(activeProfile);

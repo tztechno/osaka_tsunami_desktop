@@ -48,6 +48,13 @@
           <option value="custom">カスタム津波パラメータ</option>
         </select>
         <p id="scenario-desc" style="font-size: 11px; color: var(--text-dim); line-height: 1.4;"></p>
+        <div class="slider-group">
+          <div class="slider-label">
+            <span id="txt-source-width">波源の幅 (波の峰に沿った長さ)</span>
+            <span id="val-source-width" class="slider-val">100.0 km</span>
+          </div>
+          <input type="range" id="slider-source-width" min="0.5" max="100" step="0.5" value="100">
+        </div>
       </section>
 
       <!-- CSV Wave Source Drag & Drop (memo.md requirement 6) -->
@@ -60,6 +67,16 @@
           <input type="file" id="csv-file-input" accept=".csv" style="display: none;">
         </div>
         <div id="csv-info" style="display: none; font-size: 10px; color: var(--accent-cyan);"></div>
+        <div id="csv-adjust" class="slider-group" style="display: none;">
+          <div class="slider-label">
+            <span id="txt-csv-shoal">浅水補正 (グリーンの法則)</span>
+            <span id="val-csv-shoal" class="slider-val">×1.00</span>
+          </div>
+          <div class="slider-label">
+            <span id="txt-csv-scale">CSV波形の倍率</span>
+            <span><input type="number" id="input-csv-scale" min="0.1" max="10" step="0.01" value="1.00" style="width: 64px;"> ×</span>
+          </div>
+        </div>
       </section>
 
       <!-- Seawall & Sluice Gate Control -->

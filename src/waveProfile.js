@@ -16,6 +16,7 @@ export class WaveProfile {
     location = '',
     lon = null,
     lat = null,
+    sourceDepth = null,
     mode = '',
     maxSurge = 0,
     firstArrival = 0,
@@ -34,6 +35,7 @@ export class WaveProfile {
     this.location = location;
     this.lon = lon; // sampling point from the "# Location: ... (Lon: x, Lat: y)" header, null if absent
     this.lat = lat;
+    this.sourceDepth = sourceDepth; // water depth (m) at the CSV point, for the shoaling correction; null = unknown
     this.mode = mode;
     this.maxSurge = maxSurge;
     this.firstArrival = firstArrival;
@@ -152,6 +154,7 @@ export class WaveProfile {
       location: this.location,
       lon: this.lon,
       lat: this.lat,
+      sourceDepth: this.sourceDepth,
       mode: this.mode,
       maxSurge: this.maxSurge,
       firstArrival: this.firstArrival,

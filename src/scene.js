@@ -507,6 +507,31 @@ export class TsunamiScene {
     this.scene.add(group);
   }
 
+  /**
+   * Translucent band through the source marker along the wave crest, widthM long: where the incident wave
+   * is fed in. directionDeg = bearing the wave comes from.
+   */
+  setSourceWidthBand(widthM, directionDeg) {
+    if (this.sourceWidthBand) {
+      this.scene.remove(this.sourceWidthBand);
+      this.sourceWidthBand.geometry.dispose();
+      this.sourceWidthBand.material.dispose();
+      this.sourceWidthBand = null;
+    }
+    if (!this.sourceZoneGroup || !(widthM > 0)) return;
+    const band = new THREE.Mesh(
+      new THREE.PlaneGeometry(widthM, 120).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xff1744, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthTest: false })
+    );
+    band.renderOrder = 8;
+    // crest direction in scene axes (x east, z south) is (cos th, sin th)
+    band.rotation.y = -((directionDeg * Math.PI) / 180);
+    const p = this.sourceZoneGroup.position;
+    band.position.set(p.x, 3, p.z);
+    this.sourceWidthBand = band;
+    this.scene.add(band);
+  }
+
   updateFrame(m) {
     if (!this.waterMesh || !m.frame || !this.ground) return;
 

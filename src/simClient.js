@@ -47,6 +47,9 @@ export class SimClient {
       this.onKeyframe?.(m);
     } else if (m.type === 'computeDone') {
       this.onComputeDone?.(m);
+    } else if (m.type === 'waveAdjust') {
+      this.pending.get(m.reqId)?.(m);
+      this.pending.delete(m.reqId);
     } else if (m.type === 'history') {
       this.pending.get(m.reqId)?.(m.history);
       this.pending.delete(m.reqId);
@@ -91,6 +94,11 @@ export class SimClient {
 
   setCustomWave(params) {
     this.worker.postMessage({ type: 'customWave', params });
+  }
+
+  /** CSV multiplier and source width / centre; resolves with { bcDepth, shoalFactor } of the input zone. */
+  setWaveAdjust(params) {
+    return this.request({ type: 'waveAdjust', params });
   }
 
   reset() {

@@ -192,6 +192,12 @@ self.onmessage = (e) => {
     case 'customWave':
       sim.setCustomWave(m.params);
       break;
+    case 'waveAdjust':
+      compute = null;
+      sim.setWaveAdjust(m.params);
+      self.postMessage({ type: 'waveAdjust', reqId: m.reqId, bcDepth: sim.bcDepth, shoalFactor: sim.shoalFactor });
+      post(null, true);
+      break;
     case 'reset':
       compute = null;
       sim.reset();

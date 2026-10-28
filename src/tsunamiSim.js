@@ -34,6 +34,14 @@ const SPONGE_M = 400; // width of the wave-generating / absorbing zone at the ba
 const INCIDENT_FACTOR = 1.0;
 const OPEN_WATER_R_M = 300; // half window for the open-water test of the relaxation zone
 
+/**
+ * Green's law amplitude factor for a wave recorded at sourceDepth (the CSV point) and fed in at edgeDepth:
+ * (h_source / h_edge)^(1/4). 1 when either depth is unknown.
+ */
+export function shoalingFactor(sourceDepth, edgeDepth) {
+  return sourceDepth > 0 && edgeDepth > 0 ? (sourceDepth / edgeDepth) ** 0.25 : 1;
+}
+
 export class TsunamiSimulator {
   constructor({ meta, ground, waterMask = null, seawallManager, buildings = [] }) {
     this.meta = meta;
@@ -187,6 +195,12 @@ export class TsunamiSimulator {
    * leaving the north / east edges stay closed). Within SPONGE_M of those edges the water level
    * and discharge are relaxed towards the incident long wave, so the wave enters while waves
    * reflected by the port leave the domain instead of building up between the coast and the edge.
+   * sourceWidthM limits the wave input to zone cells within ±width/2 of sourceCenter (the source marker,
+   * region-local metres), measured along the wave crest. The source is where a wave from a distant
+   * earthquake enters the region, not the epicentre, so the wave has the same height across the width;
+   * zone cells outside still absorb (their target level is still water).
+   * bcDepth is the inflow-weighted mean depth Σh²/Σh of the cells that take the wave, for the CSV
+   * shoaling correction.
    */
   setupBoundary() {
     const { nx, ny, ground, res } = this;
@@ -231,6 +245,38 @@ export class TsunamiSimulator {
     this.bcWeight = Float32Array.from(weights);
     this.bcDelay = Float32Array.from(s, (v) => (v - sMin) / c);
     this.bcEta = new Float32Array(cells.length);
+
+    // 1 = the cell takes the incident wave, 0 = outside the source width (relaxed towards still water)
+    const width = this.sourceWidthM;
+    const ctr = this.sourceCenter;
+    this.bcInput = Float32Array.from(cells, (i) => {
+      if (!(width > 0) || !ctr) return 1;
+      const dE = ((i % nx) + 0.5) * res - ctr.x;
+      const dN = -((Math.floor(i / nx) + 0.5) * res - ctr.z);
+      return Math.abs(dE * Math.cos(th) - dN * Math.sin(th)) <= width / 2 ? 1 : 0;
+    });
+    let h1 = 0, h2 = 0;
+    cells.forEach((i, k) => {
+      const h = -ground[i];
+      if (this.bcInput[k] > 0 && h > 0) {
+        h1 += h;
+        h2 += h * h;
+      }
+    });
+    this.bcDepth = h1 > 0 ? h2 / h1 : 0;
+    this.shoalFactor = this.waveProfile ? shoalingFactor(this.waveProfile.sourceDepth, this.bcDepth) : 1;
+  }
+
+  /**
+   * CSV multiplier (on top of the automatic shoaling correction) and source width / centre; kept across
+   * scenarios. Rebuilds the wave input and restarts the run.
+   */
+  setWaveAdjust({ profileScale, sourceWidthM, sourceCenter }) {
+    if (profileScale !== undefined) this.profileScale = profileScale;
+    if (sourceWidthM !== undefined) this.sourceWidthM = sourceWidthM;
+    if (sourceCenter !== undefined) this.sourceCenter = sourceCenter;
+    this.setupBoundary();
+    this.reset();
   }
 
   setScenario(scenario) {
@@ -280,7 +326,8 @@ export class TsunamiSimulator {
 
   getOffshoreWaveEta(t) {
     if (this.waveProfile) {
-      return this.waveProfile.getEta(t);
+      // CSV level × Green's law correction from the CSV point to the input zone × the user's multiplier
+      return this.waveProfile.getEta(t) * (this.shoalFactor ?? 1) * (this.profileScale ?? 1);
     }
     return offshoreWaveEta(t, this);
   }
@@ -316,7 +363,7 @@ export class TsunamiSimulator {
     const { bcCells, bcDelay, bcWeight, bcEta } = this;
     for (let k = 0; k < bcCells.length; k++) {
       const idx = bcCells[k];
-      const e = this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]) * INCIDENT_FACTOR;
+      const e = this.bcInput[k] * this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]) * INCIDENT_FACTOR;
       bcEta[k] = e;
       const target = this.eta[idx] + (e - this.eta[idx]) * bcWeight[k];
       this.eta[idx] = Math.max(this.ground[idx], target);
