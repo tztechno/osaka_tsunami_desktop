@@ -96,7 +96,10 @@ export class SimClient {
     this.worker.postMessage({ type: 'customWave', params });
   }
 
-  /** CSV multiplier and source width / centre; resolves with { bcDepth, shoalFactor } of the input zone. */
+  /**
+   * CSV multiplier, source width / centre, CSV time reference and tide level; resolves with { bcDepth, shoalFactor }
+   * of the input zone and the run's startTimeSec.
+   */
   setWaveAdjust(params) {
     return this.request({ type: 'waveAdjust', params });
   }

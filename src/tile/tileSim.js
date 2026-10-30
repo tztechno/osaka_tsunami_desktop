@@ -141,7 +141,7 @@ const floatTex = (data, w, h) => {
 export class TileSim {
   /**
    * tile: loadTile() result; surface: tileSurface() result; coarse: { timeline, regionMeta } (the 15 m run).
-   * Initial state: the sea and rivers at T.P. 0 m, land dry (as the 15 m run starts).
+   * Initial state: the sea and rivers at the tide level (coarse.tide, T.P. m), land dry (as the 15 m run starts).
    */
   constructor(renderer, tile, surface, coarse, manning = 0.025) {
     this.renderer = renderer;
@@ -155,7 +155,7 @@ export class TileSim {
       terr[k * 4] = surface.dsm[k];
       terr[k * 4 + 1] = tile.ground[k];
       terr[k * 4 + 2] = tile.bldgGrid[k] >= 0 ? 1 : 0;
-      const d = tile.water[k] ? Math.max(0, -surface.dsm[k]) : 0;
+      const d = tile.water[k] ? Math.max(0, (coarse.tide || 0) - surface.dsm[k]) : 0;
       init[k * 4] = d; init[k * 4 + 1] = d;
     }
     this.terrTex = new THREE.DataTexture(terr, nx, ny, THREE.RGBAFormat, THREE.FloatType);

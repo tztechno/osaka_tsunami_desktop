@@ -74,6 +74,7 @@ export class TsunamiSimulator {
     // Initial state: sea cells have eta = 0.0 (sea level), land cells depth = 0
     this.waveDirectionDeg = 235; // needed by setupBoundary() inside initWater()
     this.startTimeSec = 0; // simulation clock at reset (CSV sources skip their quiet lead-in)
+    this.tideLevel = 0; // still-water level of the sea and rivers (T.P. m), e.g. high tide
     this.initWater();
 
     // Time & Controls
@@ -166,8 +167,8 @@ export class TsunamiSimulator {
       // A cell is initial open sea/river water ONLY if waterMask is true (or if no mask, zb < -1.0)
       const isWater = waterMask ? (waterMask[i] === 1) : (zb < -1.0);
       if (isWater) {
-        this.eta[i] = 0.0;
-        this.depth[i] = Math.max(0.1, -zb);
+        this.eta[i] = this.tideLevel;
+        this.depth[i] = Math.max(0.1, this.tideLevel - zb);
         if (-zb > maxSeaDepth) maxSeaDepth = -zb;
       } else {
         // Dry land (including below-sea-level zero-meter districts protected by seawalls)
@@ -201,6 +202,8 @@ export class TsunamiSimulator {
    * zone cells outside still absorb (their target level is still water).
    * bcDepth is the inflow-weighted mean depth Σh²/Σh of the cells that take the wave, for the CSV
    * shoaling correction.
+   * timeRef (region-local metres, the CSV point) is where the input wave has no delay, so the CSV's clock
+   * holds there; zone cells upstream of it take the wave earlier, and the run starts that much earlier.
    */
   setupBoundary() {
     const { nx, ny, ground, res } = this;
@@ -241,9 +244,12 @@ export class TsunamiSimulator {
     let sMin = Infinity;
     for (const v of s) if (v < sMin) sMin = v;
     const c = Math.sqrt(9.80665 * Math.max(5, this.maxSeaDepth || 15));
+    const ref = this.waveProfile && this.timeRef ? this.timeRef.x * this.kE - this.timeRef.z * this.kN : sMin;
+    this.bcAdvance = Math.max(0, (ref - sMin) / c);
+    if (this.waveProfile) this.startTimeSec = this.waveProfile.leadInSec() - this.bcAdvance;
     this.bcCells = Int32Array.from(cells);
     this.bcWeight = Float32Array.from(weights);
-    this.bcDelay = Float32Array.from(s, (v) => (v - sMin) / c);
+    this.bcDelay = Float32Array.from(s, (v) => (v - ref) / c);
     this.bcEta = new Float32Array(cells.length);
 
     // 1 = the cell takes the incident wave, 0 = outside the source width (relaxed towards still water)
@@ -268,11 +274,13 @@ export class TsunamiSimulator {
   }
 
   /**
-   * CSV multiplier (on top of the automatic shoaling correction) and source width / centre; kept across
-   * scenarios. Rebuilds the wave input and restarts the run.
+   * CSV multiplier (on top of the automatic shoaling correction), source width / centre, CSV time
+   * reference point and tide level (still-water level, T.P. m); kept across scenarios. Rebuilds the wave input and restarts the run.
    */
-  setWaveAdjust({ profileScale, sourceWidthM, sourceCenter }) {
+  setWaveAdjust({ profileScale, sourceWidthM, sourceCenter, timeRef, tideLevel }) {
     if (profileScale !== undefined) this.profileScale = profileScale;
+    if (timeRef !== undefined) this.timeRef = timeRef;
+    if (tideLevel !== undefined) this.tideLevel = tideLevel;
     if (sourceWidthM !== undefined) this.sourceWidthM = sourceWidthM;
     if (sourceCenter !== undefined) this.sourceCenter = sourceCenter;
     this.setupBoundary();
@@ -333,7 +341,7 @@ export class TsunamiSimulator {
   }
 
   stableDt() {
-    const hMax = Math.max(1, this.hMax || 0, this.maxSeaDepth + Math.abs(this.waveHeight));
+    const hMax = Math.max(1, this.hMax || 0, this.maxSeaDepth + this.tideLevel + Math.abs(this.waveHeight));
     return Math.min(1.0, (0.6 * this.res) / Math.sqrt(9.80665 * hMax));
   }
 
@@ -363,7 +371,7 @@ export class TsunamiSimulator {
     const { bcCells, bcDelay, bcWeight, bcEta } = this;
     for (let k = 0; k < bcCells.length; k++) {
       const idx = bcCells[k];
-      const e = this.bcInput[k] * this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]) * INCIDENT_FACTOR;
+      const e = this.tideLevel + this.bcInput[k] * this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]) * INCIDENT_FACTOR;
       bcEta[k] = e;
       const target = this.eta[idx] + (e - this.eta[idx]) * bcWeight[k];
       this.eta[idx] = Math.max(this.ground[idx], target);
@@ -472,12 +480,12 @@ export class TsunamiSimulator {
       }
     }
 
-    // Relax the discharge in the bay-edge zone towards the incident long-wave flux q = eta * sqrt(g h)
-    // (only on faces between two water cells, never across a quay wall)
+    // Relax the discharge in the bay-edge zone towards the incident long-wave flux q = eta' * sqrt(g h),
+    // eta' = level above the tide (only on faces between two water cells, never across a quay wall)
     for (let k = 0; k < bcCells.length; k++) {
       const idx = bcCells[k];
       const h = Math.max(0.5, bcEta[k] - this.ground[idx]);
-      const q = bcEta[k] * Math.sqrt(g * h);
+      const q = (bcEta[k] - this.tideLevel) * Math.sqrt(g * h);
       const w = bcWeight[k];
       if (idx % nx < nx - 1 && !this.isLand(idx + 1)) this.qx[idx] += (q * this.kE - this.qx[idx]) * w;
       if (idx < (ny - 1) * nx && !this.isLand(idx + nx)) this.qy[idx] += (-q * this.kN - this.qy[idx]) * w; // +y (row) = south

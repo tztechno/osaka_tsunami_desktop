@@ -49,6 +49,10 @@ let csvScale = 1;
 // Width of the wave source along the crest (m), centred on the source marker. The source is where a wave from
 // a distant earthquake enters the region, not the epicentre; the wave height is uniform across it.
 let sourceWidthM = 100000;
+// Still-water level of the sea and rivers (T.P. m): high tide raises the whole run, wave included
+let tideLevel = 0;
+// CSV sampling point inside this region (region-local metres): the CSV's clock holds there
+let csvPoint = null;
 let isPlaying = false;
 // Computed-ahead playback: the run is computed once, then played / scrubbed from keyframes
 // (every 30 s; every 60 s for runs over 90 min, which keeps a 4 h run's keyframes near 400 MB)
@@ -190,6 +194,7 @@ async function init() {
     timeline: () => timeline,
     lang: () => currentLang,
     pin: () => pin,
+    tide: () => tideLevel,
     startCompute: () => startCompute(),
     onUpdate: () => { lastShownT = -1; if (timeline.frames.length) showAt(playT); },
   });
@@ -397,10 +402,13 @@ async function prepareProfile(profile) {
 async function applyWaveAdjust() {
   if (!simClient || !scene?.sourceZoneGroup) return;
   const g = scene.sourceZoneGroup.position;
+  scene.seaLevel = tideLevel;
   const r = await simClient.setWaveAdjust({
     profileScale: activeProfile ? csvScale : 1,
     sourceWidthM,
     sourceCenter: { x: g.x + scene.W / 2, z: g.z + scene.H / 2 },
+    timeRef: activeProfile ? csvPoint : null,
+    tideLevel,
   });
   scene.setSourceWidthBand(sourceWidthM, waveDirection());
   const en = currentLang === 'en';
@@ -409,6 +417,10 @@ async function applyWaveAdjust() {
     document.getElementById('val-csv-shoal').textContent = activeProfile.sourceDepth > 0
       ? `×${r.shoalFactor.toFixed(2)} (${activeProfile.sourceDepth.toFixed(0)}m→${r.bcDepth.toFixed(0)}m)`
       : en ? '×1.00 (depth at CSV point unknown)' : '×1.00 (CSV地点の水深不明)';
+    // upstream of the CSV point the wave comes in earlier, so the run starts earlier too
+    profileStartSec = r.startTimeSec;
+    showCsvInfo(activeProfile);
+    updateTimelineUi();
   }
 }
 
@@ -419,8 +431,9 @@ function setActiveProfile(profile) {
 }
 
 /**
- * Wave-source marker on the map: for CSV sources at the CSV's sampling point with its incoming
- * direction, otherwise the default bay-mouth point with the scenario / custom direction.
+ * Wave-source marker on the map, at the south-west corner of the bay edge (the upstream end of the wave-input
+ * zone, so a narrow source still reaches both the west and the south edge) with the incoming direction.
+ * A CSV's sampling point sets its clock and shoaling correction, not the marker.
  */
 function updateWaveSource() {
   if (!scene || !meta) return;
@@ -434,11 +447,11 @@ function updateWaveSource() {
     const tol = 1000; // nankai_trough samples on the region's edge, a little outside is still that edge
     inside = worldX > -tol && worldX < scene.W + tol && worldZ > -tol && worldZ < scene.H + tol;
   }
-  const directionDeg = waveDirection();
-  scene.setupSourceZone({ ...(worldX != null && inside ? { worldX, worldZ } : {}), directionDeg });
+  csvPoint = worldX != null && inside ? { x: worldX, z: worldZ } : null;
+  scene.setupSourceZone({ worldX: 0, worldZ: scene.H, directionDeg: waveDirection() });
   const g = scene.sourceZoneGroup.position;
   const text = p
-    ? `${en ? 'Wave source (CSV)' : '波源 (CSV)'}: ${(p.location || p.filename).replace(/\s*\(Lon:[^)]*\)/i, '')} · ${en ? 'max' : '最大'} ${p.peakHeight.toFixed(2)} m`
+    ? `${en ? 'Wave source (SW edge)' : '波源 (南西端)'}: CSV ${(p.location || p.filename).replace(/\s*\(Lon:[^)]*\)/i, '')} · ${en ? 'max' : '最大'} ${p.peakHeight.toFixed(2)} m`
     : `${en ? 'Wave source' : '波源'}: ${(en ? activeScenario.name_en : activeScenario.name) || ''}`;
   labelMgr?.setSource(new THREE.Vector3(g.x, g.y + 200, g.z), text);
   waveSourceOutside = p && p.lon != null && !inside ? p : null;
@@ -477,7 +490,7 @@ function showCsvInfo(profile) {
   const el = document.getElementById('csv-info');
   el.style.display = 'block';
   const fmt = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`;
-  const lead = profile.leadInSec();
+  const lead = profileStartSec;
   const startInfo = currentLang === 'en'
     ? `starts at ${(lead / 60).toFixed(0)} min of the CSV (EQ +${fmt(lead + profile.timeOffset)}), skipping the quiet lead-in`
     : `CSVの ${(lead / 60).toFixed(0)}分目（地震後 ${fmt(lead + profile.timeOffset)}）から計算・静穏な導入部を省略`;
@@ -588,6 +601,13 @@ function setupEventListeners(canvas) {
   document.getElementById('slider-source-width').addEventListener('input', (e) => {
     sourceWidthM = parseFloat(e.target.value) * 1000;
     document.getElementById('val-source-width').textContent = `${(sourceWidthM / 1000).toFixed(1)} km`;
+    invalidateTimeline();
+    applyWaveAdjust();
+  });
+  // Tide level: raises the still sea / rivers and the incoming wave alike, and restarts the run
+  document.getElementById('slider-tide').addEventListener('input', (e) => {
+    tideLevel = parseFloat(e.target.value);
+    document.getElementById('val-tide').textContent = `T.P.+${tideLevel.toFixed(1)} m`;
     invalidateTimeline();
     applyWaveAdjust();
   });
@@ -858,6 +878,10 @@ function updateLanguageUI() {
     document.getElementById(`btn-view-${view}`).textContent = label;
   }
 
+  document.getElementById('txt-tide').textContent = currentLang === 'en' ? 'Tide level (e.g. high tide)' : '潮位 (満潮などの上乗せ)';
+  document.getElementById('txt-tide-hint').textContent = currentLang === 'en'
+    ? 'Raises the still sea / rivers and the incoming wave alike (high tide in Osaka Bay: about T.P. +1 m)'
+    : '海・川の静水面と入力する波を一括で上げます（目安: 大阪湾の満潮 T.P.+1m 前後）';
   document.getElementById('txt-source-width').textContent = currentLang === 'en' ? 'Source width (along the crest)' : '波源の幅 (波の峰に沿った長さ)';
   document.getElementById('txt-csv-shoal').textContent = currentLang === 'en' ? "Shoaling (Green's law)" : '浅水補正 (グリーンの法則)';
   document.getElementById('txt-csv-scale').textContent = currentLang === 'en' ? 'CSV wave multiplier' : 'CSV波形の倍率';
@@ -925,6 +949,7 @@ function drawVideoOverlay(ctx, w, h) {
     [en ? 'Offshore wave' : '沖合津波高', `${s.offshoreWaveHeight.toFixed(1)} m`],
     [en ? 'Max run-up' : '最大遡上高', `${s.maxRunup.toFixed(1)} m`],
     [en ? 'Inundated area' : '浸水面積', `${s.inundatedAreaHa.toFixed(1)} ha`],
+    ...(tideLevel > 0 ? [[en ? 'Tide level' : '潮位', `T.P.+${tideLevel.toFixed(1)} m`]] : []),
   ];
   const pad = 14, lh = 24, bw = 330, bh = pad * 2 + 22 + 18 + lines.length * lh + (scene.waterExaggeration > 1 ? 18 : 0);
   ctx.save();

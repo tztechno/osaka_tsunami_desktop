@@ -201,7 +201,7 @@ export class TileController {
         this.status(this.L(`全域（15m）の計算を開始しました… ${cityPct()}%`, `City-wide (15 m) run started… ${cityPct()}%`));
         return;
       }
-      run.sim = new TileSim(this.ctx.scene.renderer, this.tile, this.surface, { timeline: tl, regionMeta: this.ctx.meta });
+      run.sim = new TileSim(this.ctx.scene.renderer, this.tile, this.surface, { timeline: tl, regionMeta: this.ctx.meta, tide: this.ctx.tide?.() ?? 0 });
       const span = tl.end - tl.start;
       run.every = Math.max(30, Math.ceil(((span * this.tile.N * 2) / SNAP_BUDGET_BYTES) / 30) * 30);
       run.next = tl.start;
