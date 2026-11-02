@@ -1,19 +1,20 @@
 export const TSUNAMI_SCENARIOS = {
   nankai_osaka_trimmed: {
     id: 'nankai_osaka_trimmed',
-    name: '南海トラフ巨大地震 内閣府ケース③ (nankai_trough計算・大阪湾 最大2.0m)',
-    name_en: 'Nankai Trough Cabinet Office Case 3 (nankai_trough, Osaka Bay max 2.0m)',
+    name: '南海トラフ巨大地震 内閣府ケース③ (nankai_trough計算・領域端7地点の波形)',
+    name_en: 'Nankai Trough Cabinet Office Case 3 (nankai_trough, waveforms at 7 edge stations)',
     csvUrl: './data/wave_sources/nankai_trough_osaka_trimmed.csv',
-    waveHeight: 2.04, // m
+    edgesId: 'cao2012_case3',
+    waveHeight: 2.59, // m, at the CSV point (the edge stations reach 1.8-3.4 m)
     periodSec: 1800,
     directionDeg: 207, // from SSW (Kitan Strait)
     directionDegByRegion: { osaka_port: 207 },
     durationMin: 138,
     hasPreDrawdown: false,
     isCsvWave: true,
-    eqTimeOffsetSec: 1626,
-    description: 'nankai_trough（全国2.5kmメッシュ浅水方程式）で内閣府(2012)ケース③「紀伊半島沖～四国沖」を計算し、本領域の西端（大阪湾 135.345°E, 34.655°N）で取り出した波形（市街地連携用トリミング形式）。内閣府5ケース中で大阪湾の水位が最大。最大 2.04m（地震後 2:09:45）。三大水門・防潮堤の防御効果を検証できます。',
-    description_en: 'Wave computed by nankai_trough (2.5 km nationwide shallow-water model) for Cabinet Office (2012) Case 3 (off Kii Peninsula to Shikoku), sampled at this region\'s west edge in Osaka Bay (trimmed city-coupling format). Largest in Osaka Bay among the five cases: 2.04 m at 2:09:45 after the earthquake.',
+    eqTimeOffsetSec: 921,
+    description: 'nankai_trough で内閣府(2012)ケース③「紀伊半島沖～四国沖」を、大阪湾だけ15秒メッシュ（約400m）に細かくして計算。本領域の西端・南端に沿って約3kmごとに取り出した7地点の波形（最大 1.8〜3.4m、西端の北ほど高い）を、それぞれの場所の境界から入力します。内閣府5ケース中で大阪湾の水位が最大。西端中央の波形は最大 2.59m（地震後 2:11）。計算は最初に波が届く地点（南西端、地震後 約17分）に合わせ、静穏な導入部を省略して始めます。三大水門・防潮堤の防御効果を検証できます。',
+    description_en: 'nankai_trough run of Cabinet Office (2012) Case 3 (off Kii Peninsula to Shikoku) with Osaka Bay on a 15 arc-second grid (about 400 m). Waveforms at 7 stations about 3 km apart along this region\'s west and south edges (max 1.8-3.4 m, higher towards the north of the west edge) enter at the boundary where they were sampled. Largest in Osaka Bay among the five cases; the mid-west-edge waveform peaks at 2.59 m at 2:11 after the earthquake. The quiet lead-in is skipped, timed to the first station the wave reaches.',
     recommendedSeawall: 'sluice_closed',
   },
   nankai_osaka_full: {
@@ -21,7 +22,8 @@ export const TSUNAMI_SCENARIOS = {
     name: '南海トラフ巨大地震 内閣府ケース③ (地震発生から3時間)',
     name_en: 'Nankai Trough Cabinet Office Case 3 (3 h from origin)',
     csvUrl: './data/wave_sources/nankai_trough_osaka_full.csv',
-    waveHeight: 2.04,
+    edgesId: 'cao2012_case3',
+    waveHeight: 2.59,
     periodSec: 1800,
     directionDeg: 207,
     directionDegByRegion: { osaka_port: 207 },
@@ -29,8 +31,8 @@ export const TSUNAMI_SCENARIOS = {
     hasPreDrawdown: false,
     isCsvWave: true,
     eqTimeOffsetSec: 0,
-    description: '同じ nankai_trough 計算の全期間形式（地震発生 0秒〜3時間）。第1波の到達から最大波（約2時間10分後）、その後の反復流入までを通しで計算します。',
-    description_en: 'Same nankai_trough result in full-timeline format (0 to 3 h after the earthquake): from the first arrival through the maximum (~2 h 10 min) and the following waves.',
+    description: '同じ nankai_trough 計算・同じ領域端7地点の波形の全期間形式（地震発生 0秒〜3時間）。第1波の到達から最大波（約2時間10分後）、その後の反復流入までを通しで計算します。',
+    description_en: 'Same nankai_trough result and the same 7 edge stations in full-timeline format (0 to 3 h after the earthquake): from the first arrival through the maximum (~2 h 10 min) and the following waves.',
     recommendedSeawall: 'sluice_closed',
   },
   extreme_megathrust: {

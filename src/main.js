@@ -23,7 +23,7 @@ function wantTitle() {
 }
 // one line per scenario for the title screen
 const TITLE_SCENARIO_TEXT = {
-  nankai_osaka_trimmed: ['内閣府ケース③ · 大阪湾 最大2.04m（地震後2:10）', 'CAO case 3 · Osaka Bay max 2.04 m (EQ +2:10)'],
+  nankai_osaka_trimmed: ['内閣府ケース③ · 領域端7地点の波形 最大3.4m', 'CAO case 3 · 7 edge stations, max 3.4 m'],
   nankai_osaka_full: ['同じ計算を地震発生から3時間まで', 'The same run, 0-3 h after the quake'],
   extreme_megathrust: ['沖合4.5m · 防潮堤を越える想定超過の津波', '4.5 m offshore · overtops the seawalls'],
   ansei_nankai_1854: ['1854年型 · 川を遡る津波（水門全開）', '1854 type · run-up into the rivers (gates open)'],
@@ -53,6 +53,9 @@ let sourceWidthM = 100000;
 let tideLevel = 0;
 // CSV sampling point inside this region (region-local metres): the CSV's clock holds there
 let csvPoint = null;
+// The preset feeds waveforms sampled along the region's edges (no shoaling correction, no CSV-point delay):
+// { count: stations, peak: highest level among them (m) }, null for one CSV waveform
+let edgeInput = null;
 let isPlaying = false;
 // Computed-ahead playback: the run is computed once, then played / scrubbed from keyframes
 // (every 30 s; every 60 s for runs over 90 min, which keeps a 4 h run's keyframes near 400 MB)
@@ -414,7 +417,9 @@ async function applyWaveAdjust() {
   const en = currentLang === 'en';
   document.getElementById('csv-adjust').style.display = activeProfile ? 'flex' : 'none';
   if (activeProfile) {
-    document.getElementById('val-csv-shoal').textContent = activeProfile.sourceDepth > 0
+    document.getElementById('val-csv-shoal').textContent = edgeInput
+      ? (en ? 'none (waves sampled at the edge)' : 'なし (領域端の波形を直接入力)')
+      : activeProfile.sourceDepth > 0
       ? `×${r.shoalFactor.toFixed(2)} (${activeProfile.sourceDepth.toFixed(0)}m→${r.bcDepth.toFixed(0)}m)`
       : en ? '×1.00 (depth at CSV point unknown)' : '×1.00 (CSV地点の水深不明)';
     // upstream of the CSV point the wave comes in earlier, so the run starts earlier too
@@ -450,22 +455,35 @@ function updateWaveSource() {
   csvPoint = worldX != null && inside ? { x: worldX, z: worldZ } : null;
   scene.setupSourceZone({ worldX: 0, worldZ: scene.H, directionDeg: waveDirection() });
   const g = scene.sourceZoneGroup.position;
-  const text = p
+  const text = p && edgeInput
+    ? `${en ? 'Wave source' : '波源'}: ${en ? `waveforms at ${edgeInput.count} stations on the west / south edges` : `西端・南端 ${edgeInput.count}地点の波形`} · ${en ? 'max' : '最大'} ${edgeInput.peak.toFixed(2)} m`
+    : p
     ? `${en ? 'Wave source (SW edge)' : '波源 (南西端)'}: CSV ${(p.location || p.filename).replace(/\s*\(Lon:[^)]*\)/i, '')} · ${en ? 'max' : '最大'} ${p.peakHeight.toFixed(2)} m`
     : `${en ? 'Wave source' : '波源'}: ${(en ? activeScenario.name_en : activeScenario.name) || ''}`;
   labelMgr?.setSource(new THREE.Vector3(g.x, g.y + 200, g.z), text);
   waveSourceOutside = p && p.lon != null && !inside ? p : null;
 }
 
+/** Waveforms along the wave-input zone for a preset (tools/build-wave-sources.mjs). */
+async function loadEdgeWaves(id) {
+  const w = await fetch(`data/wave_sources/${id}_edges.json`).then((r) => r.json());
+  return { p: w.stations.map((s) => s.p), dtSec: w.dtSec, count: w.count, eta: Float32Array.from(w.stations.flatMap((s) => s.eta)) };
+}
+
 async function loadScenario(sc) {
   invalidateTimeline();
   activeScenario = sc;
   document.getElementById('scenario-desc').textContent = currentLang === 'en' ? sc.description_en : sc.description;
+  const edges = sc.edgesId ? await loadEdgeWaves(sc.edgesId) : null;
+  simClient.setEdgeWaves(edges);
+  edgeInput = edges && { count: edges.p.length, peak: edges.eta.reduce((m, v) => Math.max(m, v), 0) };
 
   if (sc.isCsvWave && sc.csvUrl) {
     try {
       const csvText = await (await fetch(sc.csvUrl)).text();
       const profile = await prepareProfile(WaveProfile.parse(csvText, sc.name));
+      // the flow at the peak of one point says little in the bay (it turns there); presets come from the strait
+      if (sc.directionDeg != null) profile.dominantDirectionDeg = sc.directionDeg;
       setActiveProfile(profile);
       simClient.setWaveProfile(profile);
       showCsvInfo(profile);
@@ -824,6 +842,9 @@ async function applyCsvProfile(profile, filename) {
   csvFile = { profile, name: filename };
   invalidateTimeline();
   selectCsvScenario(profile, filename);
+  // a dropped CSV is one waveform at one point: none of a preset's edge stations
+  simClient.setEdgeWaves(null);
+  edgeInput = null;
   setActiveProfile(profile);
   simClient.setWaveProfile(profile);
   showCsvInfo(profile);

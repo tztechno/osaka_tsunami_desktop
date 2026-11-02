@@ -4,6 +4,8 @@
  *   - *_trimmed.csv: "city trimmed" (方式B) — from 2 min before the first arrival, Time_since_EQ columns
  *   - *_full.csv:    full timeline (方式A) from the earthquake origin
  * The sampled point is on the simulation region's west edge (Osaka Bay), where the wave enters.
+ * <scenario>_edges.json holds the waveforms at the stations along the region's west and south edges (time since
+ * the earthquake), which the presets feed in where they were sampled.
  *
  *   node tools/build-wave-sources.mjs
  */
@@ -18,6 +20,7 @@ const outDir = path.join(appRoot, 'public', 'data', 'wave_sources');
 const SCENARIO = 'cao2012_case3'; // largest wave in Osaka Bay among the Cabinet Office cases
 const POINT = 'osaka_edge_mid';
 const FULL_DURATION_SEC = 10800;
+const EDGE_DT_SEC = 6;
 
 // Same as ChartRenderer.formatHMS in nankai_trough
 function formatHMS(totalSec) {
@@ -34,8 +37,8 @@ const write = (name, lines) => {
   console.log(`Saved ${name} (${lines.length} lines)`);
 };
 
-function trimmed(pt) {
-  const arrival = pt.firstArrivalSec ?? pt.maxArrivalSec;
+// arrival: the earliest first arrival along the edges, so the trimmed window holds every station's first wave
+function trimmed(pt, arrival) {
   const tStart = Math.max(0, arrival - 120);
   const tEnd = Math.max((pt.maxArrivalSec ?? arrival) + 2100, arrival + 2700);
   const rows = pt.timeHistory.filter((h) => h.timeSec >= tStart && h.timeSec <= tEnd);
@@ -76,8 +79,18 @@ function main() {
   const pt = results[SCENARIO].points.find((p) => p.id === POINT);
   console.log(`${results[SCENARIO].name} @ ${pt.name}: max ${pt.maxWaveHeight} m at ${formatHMS(pt.maxArrivalSec)}, first arrival ${formatHMS(pt.firstArrivalSec)}`);
   fs.mkdirSync(outDir, { recursive: true });
-  write('nankai_trough_osaka_trimmed.csv', trimmed(pt));
+  const stations = results[SCENARIO].points.filter((p) => p.p != null);
+  const arrival = Math.min(...stations.map((s) => s.firstArrivalSec ?? Infinity), pt.firstArrivalSec ?? pt.maxArrivalSec);
+  write('nankai_trough_osaka_trimmed.csv', trimmed(pt, arrival));
   write('nankai_trough_osaka_full.csv', full(pt));
+
+  const hist = stations[0].timeHistory, dt0 = hist[1].timeSec - hist[0].timeSec, every = Math.max(1, Math.round(EDGE_DT_SEC / dt0));
+  const n = Math.floor(hist.length / every);
+  fs.writeFileSync(path.join(outDir, `${SCENARIO}_edges.json`), JSON.stringify({
+    dtSec: every * dt0, count: n,
+    stations: stations.map((s) => ({ p: s.p, lon: s.lon, lat: s.lat, eta: Array.from({ length: n }, (_, k) => +s.timeHistory[k * every].elevation.toFixed(2)) })),
+  }));
+  console.log(`${SCENARIO}_edges.json: ${stations.length} stations, ${n} samples every ${every * dt0} s`);
 }
 
 main();

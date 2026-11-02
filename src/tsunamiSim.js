@@ -4,7 +4,7 @@
  * + Seawall overtopping barrier mechanics + Plateau 3D buildings obstacle mask.
  */
 
-import { WaveProfile } from './waveProfile.js';
+import { WaveProfile, LEAD_IN_FRACTION, LEAD_IN_MARGIN_SEC } from './waveProfile.js';
 export { WaveProfile };
 
 /**
@@ -244,9 +244,13 @@ export class TsunamiSimulator {
     let sMin = Infinity;
     for (const v of s) if (v < sMin) sMin = v;
     const c = Math.sqrt(9.80665 * Math.max(5, this.maxSeaDepth || 15));
-    const ref = this.waveProfile && this.timeRef ? this.timeRef.x * this.kE - this.timeRef.z * this.kN : sMin;
+    const ref = this.waveProfile && this.timeRef && !this.edgeWaves ? this.timeRef.x * this.kE - this.timeRef.z * this.kN : sMin;
     this.bcAdvance = Math.max(0, (ref - sMin) / c);
-    if (this.waveProfile) this.startTimeSec = this.waveProfile.leadInSec() - this.bcAdvance;
+    if (this.waveProfile) {
+      this.startTimeSec = this.waveProfile.leadInSec() - this.bcAdvance;
+      // edge stations nearer the strait see the wave before the CSV point does
+      if (this.edgeWaves) this.startTimeSec = Math.max(this.waveProfile.tMin, Math.min(this.startTimeSec, this.edgeWaves.leadInEqSec - this.waveProfile.timeOffset));
+    }
     this.bcCells = Int32Array.from(cells);
     this.bcWeight = Float32Array.from(weights);
     this.bcDelay = Float32Array.from(s, (v) => (v - ref) / c);
@@ -270,7 +274,24 @@ export class TsunamiSimulator {
       }
     });
     this.bcDepth = h1 > 0 ? h2 / h1 : 0;
-    this.shoalFactor = this.waveProfile ? shoalingFactor(this.waveProfile.sourceDepth, this.bcDepth) : 1;
+    // waveforms sampled in the input zone itself need no shoaling correction
+    this.shoalFactor = this.waveProfile && !this.edgeWaves ? shoalingFactor(this.waveProfile.sourceDepth, this.bcDepth) : 1;
+
+    // Position of each zone cell along the west edge (north to south), then the south edge (west to east), between
+    // which two wave stations it lies and how far
+    if (this.edgeWaves) {
+      const st = this.edgeWaves.p;
+      this.bcStation = new Uint16Array(cells.length);
+      this.bcStationW = new Float32Array(cells.length);
+      cells.forEach((i, k) => {
+        const x = i % nx, y = Math.floor(i / nx);
+        const p = x <= ny - 1 - y ? (y + 0.5) * res : ny * res + (x + 0.5) * res;
+        let a = 0;
+        while (a < st.length - 2 && st[a + 1] < p) a++;
+        this.bcStation[k] = a;
+        this.bcStationW[k] = st.length > 1 ? Math.max(0, Math.min(1, (p - st[a]) / (st[a + 1] - st[a]))) : 0;
+      });
+    }
   }
 
   /**
@@ -324,6 +345,38 @@ export class TsunamiSimulator {
     }
   }
 
+  /**
+   * Waveforms at stations along the wave-input zone (tools/build-wave-sources.mjs), null for none: each zone cell
+   * takes the wave of its place, interpolated between the two nearest stations, instead of the CSV with a delay.
+   * { p: metres along the zone per station, dtSec, count, eta: count values per station, one station after another },
+   * sampled in time since the earthquake; the CSV still sets the clock, the chart and the lead-in.
+   */
+  setEdgeWaves(w) {
+    this.edgeWaves = w;
+    this.edgeNow = w ? new Float32Array(w.p.length) : null;
+    if (w) {
+      // the CSV's lead-in rule applied to all stations: LEAD_IN_MARGIN_SEC before any reaches half the highest peak
+      let peak = 0;
+      for (const v of w.eta) peak = Math.max(peak, Math.abs(v));
+      let k0 = w.count;
+      for (let s = 0; s < w.p.length; s++) {
+        for (let k = 0; k < k0; k++) if (Math.abs(w.eta[s * w.count + k]) >= peak * LEAD_IN_FRACTION) { k0 = k; break; }
+      }
+      w.leadInEqSec = Math.max(0, k0 * w.dtSec - LEAD_IN_MARGIN_SEC);
+    }
+  }
+
+  /** Level at every station at simulation time t (CSV clock), multiplied like the CSV. */
+  sampleEdgeWaves(t) {
+    const { p, dtSec, count, eta } = this.edgeWaves;
+    const tEq = t + (this.waveProfile?.timeOffset ?? 0);
+    const f = Math.max(0, Math.min(count - 1.001, tEq / dtSec)), k = Math.floor(f), w = f - k, scale = this.profileScale ?? 1;
+    for (let s = 0; s < p.length; s++) {
+      const o = s * count + k;
+      this.edgeNow[s] = (eta[o] * (1 - w) + eta[o + 1] * w) * scale;
+    }
+  }
+
   reset() {
     this.simTimeSec = this.startTimeSec;
     this.history = [];
@@ -368,10 +421,14 @@ export class TsunamiSimulator {
 
     // 1. Boundary: relax the water level in the bay-edge zone towards the incident wave
     if (!this.bcCells) this.setupBoundary();
-    const { bcCells, bcDelay, bcWeight, bcEta } = this;
+    const { bcCells, bcDelay, bcWeight, bcEta, edgeWaves, bcStation, bcStationW } = this;
+    if (edgeWaves) this.sampleEdgeWaves(this.simTimeSec);
     for (let k = 0; k < bcCells.length; k++) {
       const idx = bcCells[k];
-      const e = this.tideLevel + this.bcInput[k] * this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]) * INCIDENT_FACTOR;
+      const wave = edgeWaves
+        ? this.edgeNow[bcStation[k]] * (1 - bcStationW[k]) + this.edgeNow[Math.min(bcStation[k] + 1, edgeWaves.p.length - 1)] * bcStationW[k]
+        : this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]) * INCIDENT_FACTOR;
+      const e = this.tideLevel + this.bcInput[k] * wave;
       bcEta[k] = e;
       const target = this.eta[idx] + (e - this.eta[idx]) * bcWeight[k];
       this.eta[idx] = Math.max(this.ground[idx], target);

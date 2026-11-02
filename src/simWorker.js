@@ -189,6 +189,9 @@ self.onmessage = (e) => {
       sim.setWaveProfile(WaveProfile.deserialize(m.profile));
       post(null, true);
       break;
+    case 'edgeWaves':
+      sim.setEdgeWaves(m.edgeWaves);
+      break;
     case 'customWave':
       sim.setCustomWave(m.params);
       break;

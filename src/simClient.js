@@ -92,6 +92,11 @@ export class SimClient {
     this.worker.postMessage({ type: 'waveProfile', profile: serialized });
   }
 
+  /** Waveforms along the input zone for the next runs (null for none), see TsunamiSimulator.setEdgeWaves */
+  setEdgeWaves(edgeWaves) {
+    this.worker.postMessage({ type: 'edgeWaves', edgeWaves });
+  }
+
   setCustomWave(params) {
     this.worker.postMessage({ type: 'customWave', params });
   }

@@ -5,6 +5,7 @@
  *   node tools/sim-headless.mjs [preset] [minutes] [map.jpg]
  *     preset   sluice_closed | sluice_open | no_seawall   (default sluice_closed)
  *   SCENARIO=extreme_megathrust node tools/sim-headless.mjs ...   # parametric scenario instead of the CSV
+ *   EDGES=0 [CSV=old.csv] node tools/sim-headless.mjs ...        # one CSV waveform instead of the edge stations
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,10 +41,18 @@ const sim = new TsunamiSimulator({ meta, ground, waterMask, seawallManager: wall
 if (process.env.SCENARIO) {
   sim.setScenario(TSUNAMI_SCENARIOS[process.env.SCENARIO]);
 } else {
-  const csv = fs.readFileSync(path.join(appRoot, 'public', 'data', 'wave_sources', 'nankai_trough_osaka_trimmed.csv'), 'utf8');
-  sim.setWaveProfile(WaveProfile.parse(csv, 'nankai_trough_osaka_trimmed.csv'));
+  // the preset's waveforms along the west / south edges, as in the app (EDGES=0: the CSV waveform alone)
+  if (process.env.EDGES !== '0') {
+    const w = JSON.parse(fs.readFileSync(path.join(appRoot, 'public', 'data', 'wave_sources', `${TSUNAMI_SCENARIOS.nankai_osaka_trimmed.edgesId}_edges.json`), 'utf8'));
+    sim.setEdgeWaves({ p: w.stations.map((s) => s.p), dtSec: w.dtSec, count: w.count, eta: Float32Array.from(w.stations.flatMap((s) => s.eta)) });
+  }
+  const csvFile = process.env.CSV || path.join(appRoot, 'public', 'data', 'wave_sources', 'nankai_trough_osaka_trimmed.csv');
+  const profile = WaveProfile.parse(fs.readFileSync(csvFile, 'utf8'), path.basename(csvFile));
+  profile.dominantDirectionDeg = TSUNAMI_SCENARIOS.nankai_osaka_trimmed.directionDeg; // as the app does for presets
+  sim.setWaveProfile(profile);
 }
-console.log(`preset ${preset}, wave ${sim.waveHeight.toFixed(2)} m from ${sim.waveDirectionDeg}°, ${sim.bcCells.length} boundary cells`);
+console.log(`preset ${preset}, wave ${sim.waveHeight.toFixed(2)} m from ${sim.waveDirectionDeg}°, ${sim.bcCells.length} boundary cells, ` +
+  `${sim.edgeWaves ? `${sim.edgeWaves.p.length} edge stations` : 'one CSV waveform'}, start EQ +${((sim.startTimeSec + (sim.waveProfile?.timeOffset ?? 0)) / 60).toFixed(1)} min`);
 
 const t0 = Date.now();
 for (let m = 5; m <= +minutes; m += 5) {

@@ -6,8 +6,8 @@
  *   Time_sec, Elevation_m, U_velocity_m_s, V_velocity_m_s, Speed_m_s, Direction_deg, ...
  */
 
-const LEAD_IN_FRACTION = 0.5;
-const LEAD_IN_MARGIN_SEC = 300;
+export const LEAD_IN_FRACTION = 0.5;
+export const LEAD_IN_MARGIN_SEC = 300;
 
 export class WaveProfile {
   constructor({
