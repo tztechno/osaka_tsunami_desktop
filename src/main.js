@@ -14,6 +14,7 @@ import { toLonLat, toPlane } from './proj.js';
 import { seaDepthAt } from './bathyLookup.js';
 import { TileController } from './tile/tileController.js';
 import { TitleScreen } from './title.js';
+import { setupPanels, isPhone } from './panels.js';
 
 // Title screen: once per browser tab / app launch, or with ?title=1 (the 表紙 button)
 const TITLE_KEY = 'osaka-tsunami-title-seen';
@@ -532,6 +533,13 @@ function hideCsvInfo() {
 }
 
 function setupEventListeners(canvas) {
+  setupPanels();
+  // a phone builds 1 km detail tiles only (download size, GPU memory and time)
+  if (isPhone()) {
+    const sel = document.getElementById('select-tile-size');
+    for (const o of [...sel.options]) if (o.value !== '1000') o.remove();
+    sel.value = '1000';
+  }
   // Play / Pause: the first press computes the whole run; playback follows the computed part
   document.getElementById('btn-play').addEventListener('click', () => {
     if (!timeline.frames.length && !computing) startCompute();

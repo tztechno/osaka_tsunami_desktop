@@ -631,3 +631,127 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Osaka title: the scenario list over the city lights needs a backing */
 #title .mapbox, #title .regions { background: rgba(7,11,20,.7); padding: 10px 12px; border-radius: 4px; }
+
+/* ---------- Collapsible panels (src/panels.js) ---------- */
+.fold-handle {
+  cursor: pointer;
+  user-select: none;
+}
+.sidebar-section > .fold-handle::after,
+#txt-chart-title.fold-handle::after,
+#txt-legend-title.fold-handle::after {
+  content: '▾';
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+}
+.foldable.collapsed > .fold-handle::after,
+.foldable.collapsed .fold-handle::after {
+  transform: rotate(-90deg);
+}
+#txt-chart-title.fold-handle::after,
+#txt-legend-title.fold-handle::after {
+  margin-left: 4px;
+}
+.sidebar-section.collapsed > :not(.section-title) {
+  display: none !important;
+}
+.sidebar-section.collapsed {
+  gap: 0;
+}
+.chart-panel.collapsed #depth-canvas,
+.chart-panel.collapsed #btn-pin-csv,
+.chart-panel.collapsed #btn-clear-pin {
+  display: none;
+}
+.chart-panel.collapsed > div {
+  margin-bottom: 0 !important;
+}
+.legend-panel.collapsed .legend-item {
+  display: none;
+}
+
+/* HUD: folds down to the clock */
+.hud-toggle {
+  width: auto;
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 0 2px;
+  cursor: pointer;
+  order: 99;
+  transition: transform 0.15s;
+}
+.hud-panel.collapsed .hud-toggle {
+  transform: rotate(90deg);
+}
+.hud-panel.collapsed .meter-card:not(:first-of-type) {
+  display: none;
+}
+
+/* Whole left column: folds down to the ☰ button */
+.left-column.collapsed .control-sidebar,
+.left-column.collapsed .title-group,
+.left-column.collapsed .header-btns {
+  display: none;
+}
+.left-column.collapsed {
+  width: auto;
+  bottom: auto;
+}
+.left-column.collapsed .app-header {
+  padding: 6px 8px;
+  gap: 8px;
+}
+#btn-left-toggle {
+  padding: 6px 10px;
+  font-size: 14px;
+}
+
+/* ---------- Phones / narrow screens ---------- */
+@media (max-width: 700px) {
+  .left-column {
+    top: 8px;
+    left: 8px;
+    bottom: 8px;
+    width: min(340px, calc(100vw - 16px));
+    z-index: 12;
+  }
+  .app-header { padding: 8px 10px; gap: 8px; }
+  .brand-icon { font-size: 20px; }
+  .title-group h1 { font-size: 12px; }
+  .title-group p { display: none; }
+  .control-sidebar { padding: 12px; gap: 12px; }
+  .hud-panel {
+    top: 8px;
+    right: 8px;
+    max-width: calc(100vw - 72px);
+    padding: 6px 8px;
+    gap: 4px 6px;
+    flex-wrap: nowrap;
+  }
+  .meter-card { min-width: 0; }
+  .meter-label, .meter-unit { font-size: 9px; }
+  .meter-val { font-size: 15px; }
+  .chart-panel {
+    bottom: 8px;
+    right: 8px;
+    width: min(360px, calc(100vw - 16px));
+    padding: 8px 10px;
+  }
+  .legend-panel {
+    bottom: 8px;
+    left: 8px;
+    max-width: calc(100vw - 16px);
+    padding: 6px 10px;
+  }
+  /* the chart sits above the legend: one row when the legend is folded, two when it is open */
+  .chart-panel:not(.collapsed) { bottom: 48px; }
+  .chart-panel.collapsed { width: auto; }
+  #app:has(.legend-panel:not(.collapsed)) .chart-panel { bottom: 76px; }
+  .legend-panel:not(.collapsed) { gap: 4px 8px; }
+}

@@ -21,7 +21,7 @@
     <!-- Left column: header + controls stacked, so they never overlap -->
     <div class="left-column">
     <header class="app-header glass-panel">
-      <div class="brand-icon">🌊</div>
+      <button id="btn-left-toggle" class="lang-btn" title="操作パネルを折り畳む / 開く" aria-label="操作パネルを折り畳む / 開く">☰</button>
       <div class="title-group">
         <h1 id="txt-app-title">Osaka Tsunami 3D Simulator</h1>
         <p id="txt-app-subtitle">PLATEAU 3D × 南海トラフ巨大地震 × 大阪三大水門防災シミュレーション</p>
@@ -266,6 +266,7 @@
 
     <!-- Top-Right Impact Meters HUD -->
     <aside class="hud-panel glass-panel">
+      <button id="hud-toggle" class="hud-toggle" title="計測値を折り畳む / 開く" aria-label="計測値を折り畳む / 開く">▾</button>
       <div class="meter-card">
         <span class="meter-val" id="hud-sim-time">00:00</span>
         <span class="meter-unit" id="txt-unit-min">分:秒</span>
@@ -303,7 +304,7 @@
 
     <!-- Bottom-Left Legend Panel -->
     <footer class="legend-panel glass-panel">
-      <span style="font-weight: 600; color: var(--accent-cyan);">浸水深凡例:</span>
+      <span id="txt-legend-title" style="font-weight: 600; color: var(--accent-cyan);">浸水深凡例:</span>
       <div class="legend-item"><div class="legend-color" style="background: #ffffb3;"></div><span>〜0.3m</span></div>
       <div class="legend-item"><div class="legend-color" style="background: #f7f5a9;"></div><span>0.3〜0.5m</span></div>
       <div class="legend-item"><div class="legend-color" style="background: #f8e1a6;"></div><span>0.5〜1m</span></div>

@@ -2,6 +2,7 @@
 // and show its results in step with the city timeline (water, flooded buildings, figures, hydrographs).
 import { buildTile, placeTile } from './tilebuilder.js';
 import { saveTile, getTile, deleteTile, listTiles } from './store.js';
+import { isPhone } from '../panels.js';
 import { loadTile, tileSurface, buildingFloodDepth, tileStats } from './tile.js';
 import { TileSim } from './tileSim.js';
 import { TileView } from './tileView.js';
@@ -70,7 +71,7 @@ export class TileController {
     if (this.building) return;
     const pin = this.ctx.pin();
     if (!pin) { this.status(this.L('先に地図をクリックするか住所を検索して、ピンか範囲を置いてください。', 'Place a pin or an area first (click the map or search an address).')); return; }
-    const size = +this.$('select-tile-size').value;
+    const size = isPhone() ? 1000 : +this.$('select-tile-size').value; // phones: 1 km only
     const { meta } = this.ctx;
     if (!placeTile(meta, pin.x, pin.z, size)) { this.status(this.L('この大きさのタイルは計算範囲に収まりません。', 'A tile of this size does not fit in the simulation area.')); return; }
     this.building = true;
