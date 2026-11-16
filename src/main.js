@@ -15,6 +15,8 @@ import { seaDepthAt } from './bathyLookup.js';
 import { TileController } from './tile/tileController.js';
 import { TitleScreen } from './title.js';
 import { setupPanels, isPhone } from './panels.js';
+import { parseFaultCsv } from './nankai/faultCsv.js';
+import { isFaultCsv, runNankaiFaultWorker } from './nankai/nankaiClient.js';
 
 // Title screen: once per browser tab / app launch, or with ?title=1 (the 表紙 button)
 const TITLE_KEY = 'osaka-tsunami-title-seen';
@@ -57,6 +59,7 @@ let csvPoint = null;
 // The preset feeds waveforms sampled along the region's edges (no shoaling correction, no CSV-point delay):
 // { count: stations, peak: highest level among them (m) }, null for one CSV waveform
 let edgeInput = null;
+let activeFaultTask = null;
 let isPlaying = false;
 // Computed-ahead playback: the run is computed once, then played / scrubbed from keyframes
 // (every 30 s; every 60 s for runs over 90 min, which keeps a 4 h run's keyframes near 400 MB)
@@ -474,6 +477,7 @@ async function loadEdgeWaves(id) {
 async function loadScenario(sc) {
   invalidateTimeline();
   activeScenario = sc;
+  document.getElementById('fault-export').style.display = 'none';
   document.getElementById('scenario-desc').textContent = currentLang === 'en' ? sc.description_en : sc.description;
   const edges = sc.edgesId ? await loadEdgeWaves(sc.edgesId) : null;
   simClient.setEdgeWaves(edges);
@@ -571,7 +575,7 @@ function setupEventListeners(canvas) {
   document.getElementById('select-scenario').addEventListener('change', (e) => {
     const sc = TSUNAMI_SCENARIOS[e.target.value];
     if (sc) loadScenario(sc);
-    else if (e.target.value === 'csv_file' && csvFile) applyCsvProfile(csvFile.profile, csvFile.name);
+    else if (e.target.value === 'csv_file' && csvFile) applyCsvProfile(csvFile.profile, csvFile.name, csvFile.extra);
   });
 
   // Seawall / Sluice Gate select
@@ -680,6 +684,36 @@ function setupEventListeners(canvas) {
     if (e.target.files.length > 0) {
       handleCsvFile(e.target.files[0]);
     }
+  });
+  document.getElementById('btn-fault-cancel').addEventListener('click', () => {
+    if (activeFaultTask) {
+      activeFaultTask.cancel();
+      activeFaultTask = null;
+      document.getElementById('fault-progress').style.display = 'none';
+      const el = document.getElementById('csv-info');
+      el.style.display = 'block';
+      el.textContent = currentLang === 'en' ? 'Fault simulation cancelled.' : '断層モデルからの計算を中止しました。';
+    }
+  });
+  document.getElementById('btn-save-edges').addEventListener('click', () => {
+    if (!csvFile?.extra?.edgesJson) return;
+    const base = csvFile.name.replace(/\.csv$/i, '');
+    const url = URL.createObjectURL(new Blob([csvFile.extra.edgesJson], { type: 'application/json;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${base}_edges.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  document.getElementById('btn-save-rep-csv').addEventListener('click', () => {
+    if (!csvFile?.extra?.representativeCsv) return;
+    const base = csvFile.name.replace(/\.csv$/i, '');
+    const url = URL.createObjectURL(new Blob([csvFile.extra.representativeCsv], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${base}_wave_source.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 
   // Export CSV: area-wide figures every 10 s of the computed run, on the HUD clocks
@@ -822,7 +856,7 @@ function setupEventListeners(canvas) {
 }
 
 /** A dropped CSV becomes the selected scenario ("CSV: <file>"), with its own description. */
-function selectCsvScenario(profile, filename) {
+function selectCsvScenario(profile, filename, extra = null) {
   const sel = document.getElementById('select-scenario');
   let opt = sel.querySelector('option[value="csv_file"]');
   if (!opt) {
@@ -830,11 +864,19 @@ function selectCsvScenario(profile, filename) {
     opt.value = 'csv_file';
     sel.appendChild(opt);
   }
-  opt.textContent = `CSV: ${filename}`;
+  const fi = extra?.faultInfo;
+  opt.textContent = fi ? `CSV (断層): ${filename}` : `CSV: ${filename}`;
   sel.value = 'csv_file';
   const fmt = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}`;
   const where = profile.location || filename;
-  activeScenario = {
+  activeScenario = fi ? {
+    id: 'csv_file',
+    name: `CSV (断層): ${filename}`,
+    name_en: `CSV (Fault): ${filename}`,
+    directionDeg: 207,
+    description: `断層CSV（${fi.count}断層・Mw ${fi.mw.toFixed(2)}）からnankai_trough計算で生成した領域端 ${extra.edges.p.length}地点の波形を入力します（最大 ${extra.peak.toFixed(2)} m）。`,
+    description_en: `Waveforms at ${extra.edges.p.length} edge stations computed from fault CSV (${fi.count} faults, Mw ${fi.mw.toFixed(2)}, max ${extra.peak.toFixed(2)} m).`,
+  } : {
     id: 'csv_file',
     name: `CSV: ${filename}`,
     name_en: `CSV: ${filename}`,
@@ -845,18 +887,105 @@ function selectCsvScenario(profile, filename) {
   document.getElementById('sec-custom-wave').style.display = 'none';
 }
 
-async function applyCsvProfile(profile, filename) {
+async function applyCsvProfile(profile, filename, extra = null) {
   await prepareProfile(profile);
-  csvFile = { profile, name: filename };
+  if (extra?.edges) profile.dominantDirectionDeg = 207;
+  csvFile = { profile, name: filename, extra };
   invalidateTimeline();
-  selectCsvScenario(profile, filename);
-  // a dropped CSV is one waveform at one point: none of a preset's edge stations
-  simClient.setEdgeWaves(null);
-  edgeInput = null;
+  selectCsvScenario(profile, filename, extra);
+  if (extra?.edges) {
+    simClient.setEdgeWaves(extra.edges);
+    edgeInput = { count: extra.edges.p.length, peak: extra.peak };
+    document.getElementById('fault-export').style.display = 'flex';
+  } else {
+    // a dropped CSV is one waveform at one point: none of a preset's edge stations
+    simClient.setEdgeWaves(null);
+    edgeInput = null;
+    document.getElementById('fault-export').style.display = 'none';
+  }
   setActiveProfile(profile);
   simClient.setWaveProfile(profile);
   showCsvInfo(profile);
   await applyWaveAdjust();
+}
+
+async function handleFaultCsv(text, filename) {
+  const en = currentLang === 'en';
+  const parsed = parseFaultCsv(text, undefined, currentLang);
+  const el = document.getElementById('csv-info');
+  if (parsed.errors.length > 0 || parsed.faults.length === 0) {
+    el.style.display = 'block';
+    const msg = parsed.errors.slice(0, 3).join(' / ') || (en ? 'No valid faults' : '有効な断層がありません');
+    el.textContent = en ? `Fault CSV error: ${msg}` : `断層CSVエラー: ${msg}`;
+    return;
+  }
+
+  if (activeFaultTask) {
+    activeFaultTask.cancel();
+    activeFaultTask = null;
+  }
+
+  const progBox = document.getElementById('fault-progress');
+  const progBar = document.getElementById('fault-progress-bar');
+  const progText = document.getElementById('fault-progress-text');
+  progBox.style.display = 'flex';
+  progBar.value = 0;
+  el.style.display = 'none';
+  document.getElementById('fault-export').style.display = 'none';
+
+  const mwStr = parsed.momentMagnitude.toFixed(2);
+  const nFaults = parsed.faults.length;
+  progText.textContent = en
+    ? `Computing edge waves (${nFaults} faults, Mw ${mwStr})… 0%`
+    : `境界波源を計算中 (${nFaults}断層, Mw ${mwStr})… 0%`;
+
+  const task = runNankaiFaultWorker({
+    faults: parsed.faults,
+    rupture: parsed.rupture,
+    durationSec: 10800,
+    onProgress: (p) => {
+      progBar.value = p.pct;
+      const hm = `${Math.floor(p.currentTimeSec / 3600)}:${String(Math.floor((p.currentTimeSec % 3600) / 60)).padStart(2, '0')}`;
+      progText.textContent = en
+        ? `Computing edge waves (Mw ${mwStr})… ${p.pct}% (${hm} / 3:00)`
+        : `境界波源を計算中 (Mw ${mwStr})… ${p.pct}% (${hm} / 3:00)`;
+    },
+  });
+  activeFaultTask = task;
+
+  try {
+    const res = await task.promise;
+    if (activeFaultTask !== task) return;
+    activeFaultTask = null;
+    progBox.style.display = 'none';
+
+    const profile = WaveProfile.parse(res.representativeCsv, filename);
+    const { p: stP, dtSec, count, eta } = res.edgeWaves;
+    const edgesJson = JSON.stringify({
+      dtSec,
+      count,
+      stations: res.stationSummary.map((s, idx) => ({
+        p: s.p,
+        lon: s.lon,
+        lat: s.lat,
+        eta: Array.from(eta.subarray(idx * count, (idx + 1) * count), (v) => +v.toFixed(2)),
+      })),
+    });
+
+    await applyCsvProfile(profile, filename, {
+      edges: { p: stP, dtSec, count, eta },
+      peak: res.peak,
+      faultInfo: { count: nFaults, mw: parsed.momentMagnitude, hasRupture: !!parsed.rupture },
+      representativeCsv: res.representativeCsv,
+      edgesJson,
+    });
+  } catch (err) {
+    if (activeFaultTask !== task) return;
+    activeFaultTask = null;
+    progBox.style.display = 'none';
+    el.style.display = 'block';
+    el.textContent = en ? `Fault simulation error: ${err.message}` : `断層計算エラー: ${err.message}`;
+  }
 }
 
 function handleCsvFile(file) {
@@ -864,7 +993,11 @@ function handleCsvFile(file) {
   reader.onload = (e) => {
     try {
       const text = e.target.result;
-      applyCsvProfile(WaveProfile.parse(text, file.name), file.name);
+      if (isFaultCsv(text)) {
+        handleFaultCsv(text, file.name);
+      } else {
+        applyCsvProfile(WaveProfile.parse(text, file.name), file.name);
+      }
     } catch (err) {
       // shown in the panel: the desktop app's WebView does not show alert() dialogs
       const el = document.getElementById('csv-info');
@@ -914,6 +1047,11 @@ function updateLanguageUI() {
   document.getElementById('txt-source-width').textContent = currentLang === 'en' ? 'Source width (along the crest)' : '波源の幅 (波の峰に沿った長さ)';
   document.getElementById('txt-csv-shoal').textContent = currentLang === 'en' ? "Shoaling (Green's law)" : '浅水補正 (グリーンの法則)';
   document.getElementById('txt-csv-scale').textContent = currentLang === 'en' ? 'CSV wave multiplier' : 'CSV波形の倍率';
+  document.getElementById('txt-sec-csv').textContent = dict.csvSection;
+  document.getElementById('txt-drop-zone').textContent = dict.csvDropZone;
+  document.getElementById('btn-fault-cancel').textContent = currentLang === 'en' ? 'Cancel' : '中止';
+  document.getElementById('btn-save-edges').textContent = currentLang === 'en' ? 'Save Edge Waves JSON' : '境界波源 JSON保存';
+  document.getElementById('btn-save-rep-csv').textContent = currentLang === 'en' ? 'Save Rep. Wave CSV' : '代表波源 CSV保存';
   labelMgr.setLanguage(currentLang);
   updateWaveSource();
   if (activeProfile) showCsvInfo(activeProfile);

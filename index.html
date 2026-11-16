@@ -65,16 +65,27 @@
         </div>
       </section>
 
-      <!-- CSV Wave Source Drag & Drop (memo.md requirement 6) -->
+      <!-- CSV Wave / Fault Source Drag & Drop -->
       <section class="sidebar-section">
         <div class="section-title">
-          <span>📁</span> <span id="txt-sec-csv">波源CSV連携 (nankai_trough)</span>
+          <span>📁</span> <span id="txt-sec-csv">波源・断層CSV連携 (nankai_trough)</span>
         </div>
         <div id="drop-zone" class="drop-zone">
-          <span id="txt-drop-zone">nankai_trough出力CSVをドロップ</span>
+          <span id="txt-drop-zone">波源CSV または 断層CSV をドロップ</span>
           <input type="file" id="csv-file-input" accept=".csv" style="display: none;">
         </div>
+        <div id="fault-progress" style="display: none; flex-direction: column; gap: 4px; margin-top: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+            <span id="fault-progress-text" style="font-size: 10px; color: var(--accent-cyan);">計算中…</span>
+            <button id="btn-fault-cancel" class="btn-secondary" style="padding: 2px 6px; font-size: 10px;">中止</button>
+          </div>
+          <progress id="fault-progress-bar" max="100" value="0" style="width: 100%; height: 6px;"></progress>
+        </div>
         <div id="csv-info" style="display: none; font-size: 10px; color: var(--accent-cyan);"></div>
+        <div id="fault-export" style="display: none; gap: 6px; margin-top: 4px;">
+          <button id="btn-save-edges" class="btn-secondary" style="flex: 1; padding: 4px 6px; font-size: 10px;">境界波源 JSON保存</button>
+          <button id="btn-save-rep-csv" class="btn-secondary" style="flex: 1; padding: 4px 6px; font-size: 10px;">代表波源 CSV保存</button>
+        </div>
         <div id="csv-adjust" class="slider-group" style="display: none;">
           <div class="slider-label">
             <span id="txt-csv-shoal">浅水補正 (グリーンの法則)</span>
