@@ -7,7 +7,7 @@ import { NestedGrid } from './nestedGrid.js';
 import { computeInitialDisplacementGrid } from './okada.js';
 import { toLonLat } from '../proj.js';
 
-const STATION_STEP_M = 3000;
+const STATION_STEP_M = 400; // about one cell of the Osaka Bay 15" nest (382 x 463 m)
 const INSET_M = 200;
 const EDGE_DT_SEC = 6;
 const DEFAULT_DURATION_SEC = 10800; // 3 hours
@@ -56,7 +56,8 @@ function buildEdgeStations(reg, nestMeta, fine) {
     }
   };
   for (let z = STATION_STEP_M / 2; z < reg.heightM; z += STATION_STEP_M) add(z, INSET_M, z);
-  for (let x = STATION_STEP_M / 2; x < reg.widthM; x += STATION_STEP_M) add(reg.heightM + x, x, reg.heightM - INSET_M);
+  // the south edge starts past the south-west corner, which the west edge already samples
+  for (let x = STATION_STEP_M / 2; x < reg.widthM; x += STATION_STEP_M) if (x > INSET_M) add(reg.heightM + x, x, reg.heightM - INSET_M);
   return out;
 }
 
@@ -120,6 +121,11 @@ self.onmessage = async (e) => {
       }
     }
 
+    // nest cells that count as sea but never get wet (e.g. behind a breakwater) would pull the boundary wave to 0
+    const wet = stations.filter((s) => (s.maxWaveHeight ?? 0) > 0);
+    if (wet.length === 0) throw new Error('No boundary station got wet');
+    stations.length = 0;
+    stations.push(...wet);
     const hist = stations[0].timeHistory;
     if (!hist || hist.length < 2) {
       throw new Error('Insufficient time history recorded at boundary stations');

@@ -1,7 +1,7 @@
 /**
  * Headless run of the nankai_trough solver (../N73_nankai_trough) for its preset scenarios, with Osaka Bay on its
  * nested 15 arc-second grid (bathymetry_osaka_bay, one-way NestedGrid), sampling Osaka Bay points and stations every
- * 3 km along the west and south edges of the simulation region; writes the time histories as JSON for
+ * 400 m along the west and south edges of the simulation region; writes the time histories as JSON for
  * tools/build-wave-sources.mjs.
  *
  *   npx esbuild tools/nankai/run-nankai.ts --bundle --platform=node --format=esm --external:proj4 --outfile=.cache/run-nankai.mjs
@@ -15,7 +15,7 @@ import { computeInitialDisplacementGrid } from '../../../../N73_nankai_trough/na
 import { FAULT_PRESETS } from '../../../../N73_nankai_trough/nankai_trough/src/data/presets';
 import { toLonLat } from '../lib/proj.mjs';
 
-const STATION_STEP_M = 3000;
+const STATION_STEP_M = 400; // about one cell of the Osaka Bay 15" nest (382 x 463 m)
 const INSET_M = 200; // inside the wave-input zone
 // run from osaka_tsunami_desktop/ (N73_nankai_trough sits next to N74_osaka_tsunami)
 const root = '../../N73_nankai_trough/nankai_trough/public/';
@@ -44,7 +44,8 @@ function edgeStations() {
     if (seaAt(lon, lat)) out.push({ id: `edge_${out.length}`, name: '大阪湾 計算領域の端', lon: +lon.toFixed(5), lat: +lat.toFixed(5), p, x, z, color: '#fff' });
   };
   for (let z = STATION_STEP_M / 2; z < reg.heightM; z += STATION_STEP_M) add(z, INSET_M, z);
-  for (let x = STATION_STEP_M / 2; x < reg.widthM; x += STATION_STEP_M) add(reg.heightM + x, x, reg.heightM - INSET_M);
+  // the south edge starts past the south-west corner, which the west edge already samples
+  for (let x = STATION_STEP_M / 2; x < reg.widthM; x += STATION_STEP_M) if (x > INSET_M) add(reg.heightM + x, x, reg.heightM - INSET_M);
   return out;
 }
 

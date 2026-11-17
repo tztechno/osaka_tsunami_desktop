@@ -79,7 +79,8 @@ function main() {
   const pt = results[SCENARIO].points.find((p) => p.id === POINT);
   console.log(`${results[SCENARIO].name} @ ${pt.name}: max ${pt.maxWaveHeight} m at ${formatHMS(pt.maxArrivalSec)}, first arrival ${formatHMS(pt.firstArrivalSec)}`);
   fs.mkdirSync(outDir, { recursive: true });
-  const stations = results[SCENARIO].points.filter((p) => p.p != null);
+  // stations that never get wet (nest cells behind a breakwater) would pull the boundary wave to 0
+  const stations = results[SCENARIO].points.filter((p) => p.p != null && (p.maxWaveHeight ?? 0) > 0);
   const arrival = Math.min(...stations.map((s) => s.firstArrivalSec ?? Infinity), pt.firstArrivalSec ?? pt.maxArrivalSec);
   write('nankai_trough_osaka_trimmed.csv', trimmed(pt, arrival));
   write('nankai_trough_osaka_full.csv', full(pt));
