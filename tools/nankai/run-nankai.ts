@@ -1,6 +1,7 @@
 /**
- * Headless run of the nankai_trough solver (../N73_nankai_trough) for its preset scenarios, with Osaka Bay on its
- * nested 15 arc-second grid (bathymetry_osaka_bay, one-way NestedGrid), sampling Osaka Bay points and stations every
+ * Headless run of the nankai_trough solver (N73's code as ported to src/nankai/) for N73's preset scenarios, with the
+ * route into Osaka on a nested 15 arc-second grid (bathymetry_osaka_route, only tiles shallower than 200 m, one-way
+ * NestedGrid), sampling Osaka Bay points and stations every
  * 400 m along the west and south edges of the simulation region; writes the time histories as JSON for
  * tools/build-wave-sources.mjs.
  *
@@ -9,13 +10,15 @@
  *   (a few minutes per scenario for 3 h of simulated time)
  */
 import fs from 'node:fs';
-import { ShallowWaterSolver } from '../../../../N73_nankai_trough/nankai_trough/src/physics/shallowWater';
-import { NestedGrid } from '../../../../N73_nankai_trough/nankai_trough/src/physics/nestedGrid';
-import { computeInitialDisplacementGrid } from '../../../../N73_nankai_trough/nankai_trough/src/physics/okada';
+// the solver as the app runs it (src/nankai/: N73's code plus the route grid's extra ring cells)
+import { ShallowWaterSolver } from '../../src/nankai/shallowWater.js';
+import { NestedGrid } from '../../src/nankai/nestedGrid.js';
+import { computeInitialDisplacementGrid } from '../../src/nankai/okada.js';
+import { buildRouteGrid } from '../../src/nankai/routeGrid.js';
 import { FAULT_PRESETS } from '../../../../N73_nankai_trough/nankai_trough/src/data/presets';
 import { toLonLat } from '../lib/proj.mjs';
 
-const STATION_STEP_M = 400; // about one cell of the Osaka Bay 15" nest (382 x 463 m)
+const STATION_STEP_M = 400; // about one cell of the 15" nest (382 x 463 m)
 const INSET_M = 200; // inside the wave-input zone
 // run from osaka_tsunami_desktop/ (N73_nankai_trough sits next to N74_osaka_tsunami)
 const root = '../../N73_nankai_trough/nankai_trough/public/';
@@ -25,15 +28,19 @@ const load = (name: string) => {
 };
 const meta = JSON.parse(fs.readFileSync(root + 'bathymetry_meta.json', 'utf8'));
 const bathy = load('bathymetry.bin');
-const nestMeta = JSON.parse(fs.readFileSync(root + 'bathymetry_osaka_bay_meta.json', 'utf8'));
-const fine = load('bathymetry_osaka_bay.bin');
+// 15" route grid: only the tiles holding sea shallower than 200 m are computed (src/nankai/routeGrid.js)
+const nestMeta = JSON.parse(fs.readFileSync('public/data/nankai/bathymetry_osaka_route_meta.json', 'utf8'));
+const routeBuf = fs.readFileSync('public/data/nankai/bathymetry_osaka_route.bin');
+const route = buildRouteGrid(nestMeta, new Int16Array(routeBuf.buffer, routeBuf.byteOffset, routeBuf.byteLength / 2));
+const fine = route.bathy;
+console.log(`route grid: ${route.tiles.active} of ${route.tiles.total} tiles, ${route.cells} cells, ${route.ring.length} ring cells, deepest ${route.maxActiveDepth} m`);
 const reg = JSON.parse(fs.readFileSync('public/data/regions/osaka_port/meta.json', 'utf8'));
 
 const nb = nestMeta.bounds;
 const seaAt = (lon: number, lat: number) => {
   const c = Math.floor(((lon - nb.lonMin) / (nb.lonMax - nb.lonMin)) * nestMeta.width);
   const r = Math.floor(((nb.latMax - lat) / (nb.latMax - nb.latMin)) * nestMeta.height);
-  return c >= 0 && c < nestMeta.width && r >= 0 && r < nestMeta.height && fine[r * nestMeta.width + c] < -5;
+  return c >= 0 && c < nestMeta.width && r >= 0 && r < nestMeta.height && route.active[r * nestMeta.width + c] === 1 && fine[r * nestMeta.width + c] < -5;
 };
 
 /** Stations in order along the input zone: the west edge north to south, then the south edge west to east (p = metres along it). */
@@ -55,7 +62,7 @@ const out = process.argv[4];
 const results: any = {};
 for (const sc of FAULT_PRESETS.filter((s) => !ids.length || ids.includes(s.id))) {
   const solver = new ShallowWaterSolver(meta, bathy, 3.0);
-  const nest = new NestedGrid('osaka_bay', nestMeta, fine, solver, meta);
+  const nest = new NestedGrid('osaka_route', nestMeta, fine, solver, meta, { ring: route.ring });
   const stations = edgeStations();
   const pts: any[] = [
     { id: 'osaka_port_off', name: '大阪港沖 (大阪湾)', lon: 135.35, lat: 34.6, color: '#fff' },

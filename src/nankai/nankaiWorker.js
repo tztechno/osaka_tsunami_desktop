@@ -1,10 +1,12 @@
 /**
- * Web Worker running the Nankai Trough wide-area + Osaka Bay 15" nested shallow-water solver
- * from a parsed fault model, sampling waveforms along the Osaka simulation region's west and south edges.
+ * Web Worker running the Nankai Trough wide-area shallow-water solver with a 15" nested grid on the route into
+ * Osaka (only the tiles holding sea shallower than 200 m, src/nankai/routeGrid.js) from a parsed fault model,
+ * sampling waveforms along the Osaka simulation region's west and south edges.
  */
 import { ShallowWaterSolver } from './shallowWater.js';
 import { NestedGrid } from './nestedGrid.js';
 import { computeInitialDisplacementGrid } from './okada.js';
+import { buildRouteGrid } from './routeGrid.js';
 import { toLonLat } from '../proj.js';
 
 const STATION_STEP_M = 400; // about one cell of the Osaka Bay 15" nest (382 x 463 m)
@@ -20,26 +22,29 @@ async function loadData(baseUrl) {
   const [meta, bathyBuf, nestMeta, fineBuf, reg] = await Promise.all([
     fetch(url('data/nankai/bathymetry_meta.json')).then((r) => r.json()),
     fetch(url('data/nankai/bathymetry.bin')).then((r) => r.arrayBuffer()),
-    fetch(url('data/nankai/bathymetry_osaka_bay_meta.json')).then((r) => r.json()),
-    fetch(url('data/nankai/bathymetry_osaka_bay.bin')).then((r) => r.arrayBuffer()),
+    fetch(url('data/nankai/bathymetry_osaka_route_meta.json')).then((r) => r.json()),
+    fetch(url('data/nankai/bathymetry_osaka_route.bin')).then((r) => r.arrayBuffer()),
     fetch(url('data/regions/osaka_port/meta.json')).then((r) => r.json()),
   ]);
+  const route = buildRouteGrid(nestMeta, new Int16Array(fineBuf));
   cachedData = {
     meta,
     bathy: new Int16Array(bathyBuf),
     nestMeta,
-    fine: new Int16Array(fineBuf),
+    fine: route.bathy, // inactive tiles are land here, apart from the ring cells next to the active ones
+    ring: route.ring,
+    active: route.active,
     reg,
   };
   return cachedData;
 }
 
-function buildEdgeStations(reg, nestMeta, fine) {
+function buildEdgeStations(reg, nestMeta, fine, active) {
   const nb = nestMeta.bounds;
   const seaAt = (lon, lat) => {
     const c = Math.floor(((lon - nb.lonMin) / (nb.lonMax - nb.lonMin)) * nestMeta.width);
     const r = Math.floor(((nb.latMax - lat) / (nb.latMax - nb.latMin)) * nestMeta.height);
-    return c >= 0 && c < nestMeta.width && r >= 0 && r < nestMeta.height && fine[r * nestMeta.width + c] < -5;
+    return c >= 0 && c < nestMeta.width && r >= 0 && r < nestMeta.height && active[r * nestMeta.width + c] === 1 && fine[r * nestMeta.width + c] < -5;
   };
   const out = [];
   const add = (p, x, z) => {
@@ -86,8 +91,8 @@ self.onmessage = async (e) => {
     const { faults, rupture, baseUrl, durationSec = DEFAULT_DURATION_SEC } = msg;
     self.postMessage({ type: 'progress', phase: 'load', pct: 0, currentTimeSec: 0, durationSec });
 
-    const { meta, bathy, nestMeta, fine, reg } = await loadData(baseUrl);
-    const stations = buildEdgeStations(reg, nestMeta, fine);
+    const { meta, bathy, nestMeta, fine, ring, active, reg } = await loadData(baseUrl);
+    const stations = buildEdgeStations(reg, nestMeta, fine, active);
     if (stations.length === 0) {
       throw new Error('No offshore boundary stations found along region edges');
     }
@@ -98,7 +103,7 @@ self.onmessage = async (e) => {
     self.postMessage({ type: 'progress', phase: 'okada', pct: 2, currentTimeSec: 0, durationSec });
 
     const solver = new ShallowWaterSolver(meta, bathy, 3.0);
-    const nest = new NestedGrid('osaka_bay', nestMeta, fine, solver, meta);
+    const nest = new NestedGrid('osaka_route', nestMeta, fine, solver, meta, { ring });
     solver.observationPoints = [];
     nest.observationPoints = pts;
 

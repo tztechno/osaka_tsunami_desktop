@@ -1,4 +1,6 @@
 import { ShallowWaterSolver } from "./shallowWater.js";
+// esbuild output of N73's src/physics/nestedGrid.ts, plus options.ring (extra ring cells inside the grid, used by
+// routeGrid.js for the inactive tiles next to the computed ones)
 class NestedGrid {
   solver;
   meta;
@@ -11,7 +13,7 @@ class NestedGrid {
   ringWeight;
   ringPrev;
   ringNext;
-  constructor(name, meta, rawBathymetry, coarse, coarseMeta) {
+  constructor(name, meta, rawBathymetry, coarse, coarseMeta, options = {}) {
     this.name = name;
     this.meta = meta;
     this.coarse = coarse;
@@ -25,6 +27,7 @@ class NestedGrid {
     const ring = [];
     for (let c = 0; c < W; c++) ring.push(c, (H - 1) * W + c);
     for (let r = 1; r < H - 1; r++) ring.push(r * W, r * W + W - 1);
+    if (options.ring) for (const k of options.ring) ring.push(k);
     this.ringIdx = Int32Array.from(ring);
     this.ringCoarseIdx = new Int32Array(ring.length * 4);
     this.ringWeight = new Float32Array(ring.length * 4);

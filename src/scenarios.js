@@ -5,16 +5,16 @@ export const TSUNAMI_SCENARIOS = {
     name_en: 'Nankai Trough Cabinet Office Case 3 (nankai_trough, waveforms at 53 edge stations)',
     csvUrl: './data/wave_sources/nankai_trough_osaka_trimmed.csv',
     edgesId: 'cao2012_case3',
-    waveHeight: 2.59, // m, at the CSV point (the edge stations reach 1.8-3.5 m)
+    waveHeight: 2.61, // m, at the CSV point (the edge stations reach 1.8-3.4 m)
     periodSec: 1800,
     directionDeg: 207, // from SSW (Kitan Strait)
     directionDegByRegion: { osaka_port: 207 },
     durationMin: 138,
     hasPreDrawdown: false,
     isCsvWave: true,
-    eqTimeOffsetSec: 777,
-    description: 'nankai_trough で内閣府(2012)ケース③「紀伊半島沖～四国沖」を、大阪湾だけ15秒メッシュ（約400m）に細かくして計算。本領域の西端・南端に沿って約400mごとに取り出した53地点の波形（最大 1.8〜3.5m、西端の北ほど高い）を、それぞれの場所の境界から入力します。内閣府5ケース中で大阪湾の水位が最大。西端中央の波形は最大 2.59m（地震後 2:11）。計算は最初に波が届く地点（南西端、地震後 約15分）に合わせ、静穏な導入部を省略して始めます。三大水門・防潮堤の防御効果を検証できます。',
-    description_en: 'nankai_trough run of Cabinet Office (2012) Case 3 (off Kii Peninsula to Shikoku) with Osaka Bay on a 15 arc-second grid (about 400 m). Waveforms at 53 stations about 400 m apart along this region\'s west and south edges (max 1.8-3.5 m, higher towards the north of the west edge) enter at the boundary where they were sampled. Largest in Osaka Bay among the five cases; the mid-west-edge waveform peaks at 2.59 m at 2:11 after the earthquake. The quiet lead-in is skipped, timed to the first station the wave reaches.',
+    eqTimeOffsetSec: 804,
+    description: 'nankai_trough で内閣府(2012)ケース③「紀伊半島沖～四国沖」を、大阪への経路（紀伊水道・大阪湾・播磨灘・紀伊半島沖や四国沖の陸棚）のうち水深200m未満の海を含む0.125°タイルだけ15秒メッシュ（約400m）に細かくして計算。本領域の西端・南端に沿って約400mごとに取り出した53地点の波形（最大 1.8〜3.4m、西端の北ほど高い）を、それぞれの場所の境界から入力します。内閣府5ケース中で大阪湾の水位が最大。西端中央の波形は最大 2.61m（地震後 2:09）。計算は最初に波が届く地点（南西端、地震後 約15分）に合わせ、静穏な導入部を省略して始めます。三大水門・防潮堤の防御効果を検証できます。',
+    description_en: 'nankai_trough run of Cabinet Office (2012) Case 3 (off Kii Peninsula to Shikoku) with a 15 arc-second grid (about 400 m) on the 0.125° tiles of the route into Osaka (Kii Channel, Osaka Bay, Harima-nada, the shelf off Kii and Shikoku) that hold sea shallower than 200 m. Waveforms at 53 stations about 400 m apart along this region\'s west and south edges (max 1.8-3.4 m, higher towards the north of the west edge) enter at the boundary where they were sampled. Largest in Osaka Bay among the five cases; the mid-west-edge waveform peaks at 2.61 m at 2:09 after the earthquake. The quiet lead-in is skipped, timed to the first station the wave reaches.',
     recommendedSeawall: 'sluice_closed',
   },
   nankai_osaka_full: {

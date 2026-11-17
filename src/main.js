@@ -26,7 +26,7 @@ function wantTitle() {
 }
 // one line per scenario for the title screen
 const TITLE_SCENARIO_TEXT = {
-  nankai_osaka_trimmed: ['内閣府ケース③ · 領域端53地点の波形 最大3.5m', 'CAO case 3 · 53 edge stations, max 3.5 m'],
+  nankai_osaka_trimmed: ['内閣府ケース③ · 領域端53地点の波形 最大3.4m', 'CAO case 3 · 53 edge stations, max 3.4 m'],
   nankai_osaka_full: ['同じ計算を地震発生から3時間まで', 'The same run, 0-3 h after the quake'],
   extreme_megathrust: ['沖合4.5m · 防潮堤を越える想定超過の津波', '4.5 m offshore · overtops the seawalls'],
   ansei_nankai_1854: ['1854年型 · 川を遡る津波（水門全開）', '1854 type · run-up into the rivers (gates open)'],
